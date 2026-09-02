@@ -20,7 +20,8 @@ const Search = styled("div")(({ theme }) => ({
     backgroundColor: alpha(theme.palette.common.white, 0.25),
   },
   marginLeft: 0,
-  width: 300,
+  // Wide enough for the placeholder and a typical reverse-DNS bundle id
+  width: 400,
 }));
 
 const SearchIconWrapper = styled("div")(() => ({
@@ -43,7 +44,9 @@ const StyledInputBase = styled(InputBase)(({ theme }) => ({
     // vertical padding + font size from searchIcon
     paddingLeft: 45,
     transition: theme.transitions.create("width"),
-    width: 300 - 45 - 10,
+    // The Autocomplete sizes its input with `flex-grow: 1` inside the (full width) root, so
+    // the visible text must not be clipped by an ellipsis of our own
+    textOverflow: "ellipsis",
   },
 }));
 
@@ -123,9 +126,14 @@ export const AppPicker = ({
         inputValue={inputValue}
         onInputChange={(_, newValue) => handleInputChange(newValue)}
         onOpen={onOpen}
-        slotProps={{ paper: { sx: { fontFamily: "inherit" } } }}
+        slotProps={{
+          // The list is anchored to the search box but must not be squeezed to its width: a
+          // bundle id plus its app name is wider than the box
+          popper: { style: { width: "auto" }, placement: "bottom-start" },
+          paper: { sx: { fontFamily: "inherit", minWidth: 300, maxWidth: "80vw" } },
+        }}
         renderOption={(props, option) => (
-          <li {...props} key={option.bundleId}>
+          <li {...props} key={option.bundleId} className={`${props.className} whitespace-nowrap`}>
             <span>{option.name}</span>
             <span className="text-neutral-500 ml-2">{option.bundleId}</span>
             {option.isRunning ? <span className="ml-2 text-success">● running</span> : null}
@@ -135,6 +143,9 @@ export const AppPicker = ({
           <StyledInputBase
             ref={params.slotProps.input.ref}
             className={params.slotProps.input.className}
+            // Without it the root keeps its intrinsic width and the input shrinks to MUI's
+            // 30px minimum, clipping the bundle id (and the list anchored to the root)
+            fullWidth={params.fullWidth}
             endAdornment={params.slotProps.input.endAdornment}
             inputProps={params.slotProps.htmlInput}
             placeholder="Bundle id — type or pick an installed app"

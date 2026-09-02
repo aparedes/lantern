@@ -8,6 +8,10 @@ export default defineConfig({
   root: "src/webapp",
   resolve: {
     alias: {
+      // Same for the types and logger packages, which the reporter source (aliased below)
+      // imports by name: the dev server cannot destructure named exports from their CommonJS `dist`.
+      "@lantern/types": fileURLToPath(new URL("../../core/types/index.ts", import.meta.url)),
+      "@lantern/logger": fileURLToPath(new URL("../../core/logger/index.ts", import.meta.url)),
       // Bundle the shared UI library from source instead of its tsc-built CJS `dist`, so the
       // React Compiler (and Fast Refresh) actually see its components — `dist` ships JSX
       // already lowered to `jsx()` calls, which the compiler skips.

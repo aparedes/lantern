@@ -6,8 +6,10 @@ import { program } from "commander";
 import { detectCurrentAppBundleId } from "./commands/detectCurrentAppBundleId";
 import { getPidId } from "./commands/getPidId";
 import { getAbi } from "./commands/getAbi";
+import { installSignalHandlers } from "@lantern/profiler-protocol";
 import { AndroidProfiler } from "./commands/platforms/AndroidProfiler";
 
+installSignalHandlers();
 const profiler = new AndroidProfiler();
 
 const debugCppConfig = () => {
@@ -62,31 +64,29 @@ program
   .action((options) => {
     const bundleId = options.bundleId || detectCurrentAppBundleId().bundleId;
 
-    profiler.pollPerformanceMeasures(bundleId, {
-      onMeasure: (measure: Measure) => {
-        const headers: string[] = [];
-        const values: (number | undefined)[] = [];
+    profiler.startSession(bundleId).on("measure", (measure: Measure) => {
+      const headers: string[] = [];
+      const values: (number | undefined)[] = [];
 
-        if (options.fps) {
-          headers.push("FPS");
-          values.push(measure.fps);
-        }
+      if (options.fps) {
+        headers.push("FPS");
+        values.push(measure.fps);
+      }
 
-        if (options.ram) {
-          headers.push("RAM");
-          values.push(measure.ram);
-        }
+      if (options.ram) {
+        headers.push("RAM");
+        values.push(measure.ram);
+      }
 
-        if (options.threadNames) {
-          options.threadNames.forEach((thread: string) => {
-            headers.push(`CPU ${thread}`);
-            values.push(measure.cpu.perName[thread]);
-          });
-        }
+      if (options.threadNames) {
+        options.threadNames.forEach((thread: string) => {
+          headers.push(`CPU ${thread}`);
+          values.push(measure.cpu.perName[thread]);
+        });
+      }
 
-        console.log(headers.join("|"));
-        console.log(values.join("|"));
-      },
+      console.log(headers.join("|"));
+      console.log(values.join("|"));
     });
   });
 

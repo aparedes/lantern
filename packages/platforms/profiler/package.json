@@ -7,6 +7,7 @@
   "dependencies": {
     "@lantern/android": "^0.14.0",
     "@lantern/ios": "^0.4.0",
-    "@lantern/types": "^0.9.0"
+    "@lantern/types": "^0.9.0",
+    "@lantern/profiler-protocol": "^0.1.0"
   }
 }

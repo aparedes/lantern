@@ -145,7 +145,7 @@ const runTest = async ({
 
   applyLogLevelOption(logLevel);
 
-  if (record && !profiler.getScreenRecorder("lantern-record-probe.mp4")) {
+  if (record && !profiler.supportsScreenRecording()) {
     Logger.warn(
       `--record was passed but screen recording is not supported on ${resolvedPlatform}, no video will be recorded`
     );

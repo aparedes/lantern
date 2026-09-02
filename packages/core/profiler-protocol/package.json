@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "description": "NDJSON wire protocol shared by the Android and iOS profiler binaries",
   "main": "dist/src/index.js",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@lantern/types": "^0.9.0"
+  }
 }

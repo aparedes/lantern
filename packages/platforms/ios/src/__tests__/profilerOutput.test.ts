@@ -34,7 +34,7 @@ const mockSpawn = (): MockChild => {
 // readline dispatches "line" events asynchronously
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-describe("IOSProfiler.pollPerformanceMeasures", () => {
+describe("IOSProfiler.startSession", () => {
   const debug = spyOn(Logger, "debug").mockImplementation(() => {});
   const warn = spyOn(Logger, "warn").mockImplementation(() => {});
   const error = spyOn(Logger, "error").mockImplementation(() => {});
@@ -52,7 +52,9 @@ describe("IOSProfiler.pollPerformanceMeasures", () => {
     const onMeasure = jest.fn();
     const onStartMeasuring = jest.fn();
 
-    new IOSProfiler().pollPerformanceMeasures("com.example", { onMeasure, onStartMeasuring });
+    const session = new IOSProfiler().startSession("com.example");
+    session.on("measure", onMeasure);
+    session.on("started", onStartMeasuring);
 
     child.stdout.write(
       [
@@ -83,7 +85,7 @@ describe("IOSProfiler.pollPerformanceMeasures", () => {
 
   it("logs stderr markers at the matching level", async () => {
     const child = mockSpawn();
-    new IOSProfiler().pollPerformanceMeasures("com.example", { onMeasure: jest.fn() });
+    new IOSProfiler().startSession("com.example");
 
     child.stderr.write(
       [
@@ -102,14 +104,16 @@ describe("IOSProfiler.pollPerformanceMeasures", () => {
     expect(debug).toHaveBeenCalledWith("idevice noise");
   });
 
-  it("reports an unexpected exit through onEnd and the logger", () => {
+  it("reports an unexpected exit through ended and the logger", async () => {
     const child = mockSpawn();
     const onEnd = jest.fn();
-    new IOSProfiler().pollPerformanceMeasures("com.example", { onMeasure: jest.fn(), onEnd });
+    const session = new IOSProfiler().startSession("com.example");
+    session.on("ended", onEnd);
 
     child.emit("close", 1, null);
 
     expect(onEnd).toHaveBeenCalledWith("lantern-ios-profiler exited unexpectedly (code 1)");
+    await expect(session.started).rejects.toThrow("exited unexpectedly (code 1)");
     expect(error).toHaveBeenCalledTimes(1);
     expect(error.mock.calls[0][0]).toContain("exited unexpectedly (code 1)");
   });
@@ -119,12 +123,10 @@ describe("IOSProfiler.pollPerformanceMeasures", () => {
     try {
       const child = mockSpawn();
       const onEnd = jest.fn();
-      const { stop } = new IOSProfiler().pollPerformanceMeasures("com.example", {
-        onMeasure: jest.fn(),
-        onEnd,
-      });
+      const session = new IOSProfiler().startSession("com.example");
+      session.on("ended", onEnd);
 
-      stop();
+      const stopping = session.stop();
       expect(child.kill).toHaveBeenCalledWith("SIGINT");
       expect(child.kill).toHaveBeenCalledTimes(1);
 
@@ -134,6 +136,7 @@ describe("IOSProfiler.pollPerformanceMeasures", () => {
       child.signalCode = "SIGKILL";
       child.emit("close", null, "SIGKILL");
       expect(onEnd).toHaveBeenCalledWith("stopped (signal SIGKILL)");
+      expect(stopping).resolves.toBeUndefined();
       expect(error).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
@@ -144,11 +147,9 @@ describe("IOSProfiler.pollPerformanceMeasures", () => {
     jest.useFakeTimers();
     try {
       const child = mockSpawn();
-      const { stop } = new IOSProfiler().pollPerformanceMeasures("com.example", {
-        onMeasure: jest.fn(),
-      });
+      const session = new IOSProfiler().startSession("com.example");
 
-      stop();
+      session.stop();
       child.exitCode = 0;
       child.emit("close", 0, null);
       jest.advanceTimersByTime(3000);

@@ -47,11 +47,10 @@ const get = (): Profiler => (instance ??= create(selected ?? platformFromEnv() ?
  * (not a Proxy) so tests can keep `spyOn(profiler, "installProfilerOnDevice")`.
  */
 export const profiler: Profiler = {
-  pollPerformanceMeasures: (bundleId, options) => get().pollPerformanceMeasures(bundleId, options),
+  startSession: (bundleId, options) => get().startSession(bundleId, options),
   detectCurrentBundleId: () => get().detectCurrentBundleId(),
   installProfilerOnDevice: () => get().installProfilerOnDevice(),
-  cleanup: () => get().cleanup(),
-  getScreenRecorder: (videoPath) => get().getScreenRecorder(videoPath),
+  supportsScreenRecording: () => get().supportsScreenRecording(),
   stopApp: (bundleId) => get().stopApp(bundleId),
   detectDeviceRefreshRate: () => get().detectDeviceRefreshRate(),
   listApps: () => get().listApps(),
@@ -104,3 +103,4 @@ export const resolvePlatform = (
 
 // TODO move this to a separate package
 export { waitFor } from "@lantern/android";
+export { disposeAllSessions, installSignalHandlers } from "@lantern/profiler-protocol";

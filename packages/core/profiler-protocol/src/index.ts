@@ -118,3 +118,14 @@ export const lastErrorMessage = (stderr: string): string | undefined =>
     .map(parseMarkerLine)
     .filter((marker) => marker?.level === "error")
     .at(-1)?.message;
+
+export { ProfilingSessionBase } from "./session";
+export {
+  disposeAllSessions,
+  installSignalHandlers,
+  liveSessionCount,
+  trackSession,
+  untrackSession,
+} from "./registry";
+export type { SignalTarget } from "./registry";
+export { describeExit, KILL_AFTER_MS, terminateChild } from "./child";

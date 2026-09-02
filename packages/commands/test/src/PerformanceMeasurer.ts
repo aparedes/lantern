@@ -1,8 +1,12 @@
 import { Logger } from "@lantern/logger";
 import { profiler, waitFor } from "@lantern/profiler";
-import { basename, dirname } from "path";
 import { Trace } from "./Trace";
-import { Measure, POLLING_INTERVAL, ScreenRecorder, TestCaseIterationResult } from "@lantern/types";
+import {
+  Measure,
+  POLLING_INTERVAL,
+  ProfilingSession,
+  TestCaseIterationResult,
+} from "@lantern/types";
 
 /**
  * How long the profiler gets to report that it is measuring (see `waitUntilMeasuring`). Once the
@@ -15,12 +19,9 @@ export const START_MEASURING_TIMEOUT = 30000;
 
 export class PerformanceMeasurer {
   measures: Measure[] = [];
-  polling?: { stop: () => void };
-  shouldStop = false;
+  session?: ProfilingSession;
   timingTrace?: Trace;
 
-  private recorder: ScreenRecorder | undefined | null;
-  private recordingStarted = false;
   private forceStopped = false;
   /** Settles once the profiler reported its first sample or gave up, see `waitUntilMeasuring` */
   private measuringStarted?: Promise<void>;
@@ -41,25 +42,43 @@ export class PerformanceMeasurer {
       /** Overrides `START_MEASURING_TIMEOUT` (in ms) */
       startTimeout?: number;
     }
-  ) {
-    this.recorder = this.options.recordOptions.record
-      ? profiler.getScreenRecorder(basename(this.options.recordOptions.videoPath))
-      : null;
-  }
+  ) {}
 
   /**
-   * Starts the recording and the profiler. Resolves once the profiler is spawned: whether it then
-   * manages to measure is reported by `waitUntilMeasuring` / `runWhileMeasuring`.
+   * Starts the session (recording, then profiler). Resolves once the profiler is spawned: whether
+   * it then manages to measure is reported by `waitUntilMeasuring` / `runWhileMeasuring`.
    */
   async start(
     onMeasure: (measure: Measure) => void = () => {
       // noop by default
     }
   ) {
-    await this.maybeStartRecording();
-
-    // Stopped while the recording was starting: there is nothing left to measure
+    // Stopped before we even started: there is nothing to measure
     if (this.forceStopped) return;
+
+    const { recordOptions } = this.options;
+    const session = profiler.startSession(this.bundleId, {
+      recording: recordOptions.record
+        ? {
+            videoPath: recordOptions.videoPath,
+            bitRate: recordOptions.bitRate,
+            size: recordOptions.size,
+          }
+        : undefined,
+    });
+    this.session = session;
+
+    const restart = () => {
+      this.measures = [];
+      this.timingTrace = new Trace();
+    };
+    session.on("measure", (measure) => {
+      this.measures.push(measure);
+      onMeasure(measure);
+      Logger.debug(`Received measure ${this.measures.length}`);
+    });
+    session.on("started", restart);
+    session.on("restarted", restart);
 
     const timeout = this.options.startTimeout ?? START_MEASURING_TIMEOUT;
 
@@ -74,7 +93,7 @@ export class PerformanceMeasurer {
       };
 
       const timeoutId = setTimeout(() => {
-        this.polling?.stop();
+        session.dispose();
         settle(() =>
           reject(
             new Error(
@@ -86,32 +105,21 @@ export class PerformanceMeasurer {
 
       this.resolvePendingStart = () => settle(resolve);
 
-      this.polling = profiler.pollPerformanceMeasures(this.bundleId, {
-        onMeasure: (measure) => {
-          if (this.shouldStop) {
-            this.polling?.stop();
-          }
-
-          this.measures.push(measure);
-          onMeasure(measure);
-          Logger.debug(`Received measure ${this.measures.length}`);
-        },
-        onStartMeasuring: () => {
-          this.measures = [];
-          this.timingTrace = new Trace();
-          settle(resolve);
-        },
-        onEnd: (reason) => {
-          // Only relevant while we are still waiting for the first sample, a no-op afterwards
+      session.started.then(
+        () => settle(resolve),
+        // Only relevant while we are still waiting for the first sample, a no-op afterwards
+        (error: Error) =>
           settle(() =>
-            reject(new Error(`The profiler stopped before it started measuring: ${reason}`))
-          );
-        },
-      });
+            reject(new Error(`The profiler stopped before it started measuring: ${error.message}`))
+          )
+      );
     });
     // Nothing may ever await it (e.g. the test failed on its own first): a rejection must not
     // surface as unhandled
     this.measuringStarted.catch(() => {});
+
+    // e.g. the screen recording could not start: fail here, like the recording did before
+    await session.launched;
   }
 
   /**
@@ -139,7 +147,7 @@ export class PerformanceMeasurer {
   forceStop() {
     this.forceStopped = true;
     this.resolvePendingStart?.();
-    this.polling?.stop();
+    this.session?.dispose();
   }
 
   async stop(duration?: number): Promise<TestCaseIterationResult> {
@@ -158,17 +166,14 @@ export class PerformanceMeasurer {
         errorMessage:
           "We don't have enough measures for the duration of the test specified, maybe the app has crashed?",
       });
-      this.measures = this.measures.slice(0, duration / POLLING_INTERVAL + 1);
-    } else {
-      this.shouldStop = true;
-      // Hack to wait for the last measures to be received
-      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL * 2));
     }
 
-    // Ensure polling has stopped
-    this.polling?.stop();
+    // Waits for the profiler to exit: every measure it printed has been delivered by then
+    await this.session?.stop();
 
-    await this.maybeStopRecording();
+    if (duration) {
+      this.measures = this.measures.slice(0, duration / POLLING_INTERVAL + 1);
+    }
 
     if (this.measures.length === 0) {
       throw new Error(
@@ -177,6 +182,7 @@ export class PerformanceMeasurer {
     }
 
     const startTime = this.timingTrace?.startTime ?? 0;
+    const recordingStartTime = this.session?.recordingStartTime;
 
     return {
       time: time ?? 0,
@@ -184,30 +190,12 @@ export class PerformanceMeasurer {
       measures: this.measures,
       status: "SUCCESS",
       videoInfos:
-        this.options.recordOptions.record && this.recorder && this.recordingStarted
+        this.options.recordOptions.record && recordingStartTime !== undefined
           ? {
               path: this.options.recordOptions.videoPath,
-              startOffset: Math.floor(startTime - this.recorder.getRecordingStartTime()),
+              startOffset: Math.floor(startTime - recordingStartTime),
             }
           : undefined,
     };
-  }
-
-  private async maybeStartRecording() {
-    if (this.options.recordOptions.record && this.recorder) {
-      const { bitRate, size } = this.options.recordOptions;
-      await this.recorder.startRecording({ bitRate, size });
-      this.recordingStarted = true;
-    }
-  }
-
-  private async maybeStopRecording() {
-    if (this.options.recordOptions.record && this.recorder) {
-      await this.recorder.stopRecording();
-      // There is no file to pull when the recording never started (e.g. `beforeTest` failed)
-      if (this.recordingStarted) {
-        await this.recorder.pullRecording(dirname(this.options.recordOptions.videoPath));
-      }
-    }
   }
 }

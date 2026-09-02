@@ -4,5 +4,10 @@
     "outDir": "./dist"
   },
   "include": ["./src/**/*.ts"],
-  "exclude": ["./dist/**/*"]
+  "exclude": ["./dist/**/*"],
+  "references": [
+    {
+      "path": "../types"
+    }
+  ]
 }

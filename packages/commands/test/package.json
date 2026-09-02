@@ -12,6 +12,7 @@
   "dependencies": {
     "@lantern/logger": "^0.3.3",
     "@lantern/profiler": "^0.10.12",
+    "@lantern/profiler-protocol": "^0.1.0",
     "@lantern/reporter": "^0.10.0",
     "@lantern/types": "^0.9.0",
     "commander": "^15.0.0"

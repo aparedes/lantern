@@ -2,10 +2,10 @@ import { AndroidProfiler } from "./AndroidProfiler";
 import { CppProfilerName } from "./UnixProfiler";
 
 export class LanternSelfProfiler extends AndroidProfiler {
-  // Kinda hacky we just use exactly the same code as in AndroidProfiler
-  // but don't start atrace
-  protected startATrace(): void {}
-  protected stopATrace(): void {}
+  // Same code as AndroidProfiler, without atrace: the profiler binary draws no frames
+  protected withAtrace(): boolean {
+    return false;
+  }
   public supportFPS(): boolean {
     return false;
   }

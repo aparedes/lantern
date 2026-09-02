@@ -20,9 +20,7 @@ import { profiler } from "@lantern/profiler";
 const mockPerformancePolling = new PerformancePollingMock();
 
 spyOn(profiler, "installProfilerOnDevice").mockImplementation(() => undefined);
-spyOn(profiler, "pollPerformanceMeasures").mockImplementation((pid, options) =>
-  mockPerformancePolling.start(options)
-);
+spyOn(profiler, "startSession").mockImplementation(mockPerformancePolling.start);
 
 Logger.setLogLevel(LogLevel.SILENT);
 setDefaultTimeout(20000);

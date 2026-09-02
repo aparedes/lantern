@@ -113,6 +113,22 @@ export class ScreenRecorder {
     return this.recordingStartTime;
   }
 
+  /**
+   * Synchronous best-effort teardown for signal handlers: signals screenrecord on the device so
+   * it finalizes the file, and kills the adb process. The recording is left on the device.
+   */
+  dispose(): void {
+    const process = this.process;
+    if (!process) return;
+    this.process = undefined;
+    try {
+      executeCommand("adb shell pkill -INT screenrecord");
+    } catch {
+      // The device may be gone already
+    }
+    process.kill("SIGINT");
+  }
+
   async pullRecording(destinationPath: string): Promise<void> {
     executeCommand(`adb pull ${RECORDING_FOLDER}${this.fileName} ${destinationPath}`);
     executeCommand(`adb shell rm ${RECORDING_FOLDER}${this.fileName}`);

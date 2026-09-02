@@ -17,29 +17,6 @@ export const executeCommand = (command: string): string => {
   }
 };
 
-const childProcesses: ChildProcess[] = [];
-
-export const cleanup = () => {
-  childProcesses.forEach((child) => {
-    child.kill();
-  });
-};
-
-const exit = () => {
-  cleanup();
-  process.exit();
-};
-
-declare const global: {
-  Flipper: unknown;
-};
-
-if (!global.Flipper) {
-  process.on("SIGINT", exit); // CTRL+C
-  process.on("SIGQUIT", exit); // Keyboard quit
-  process.on("SIGTERM", exit); // `kill` command
-}
-
 /**
  * In AWS when we properly kill the process termination gets logged in stderr with a weird log
  */
@@ -81,9 +58,6 @@ export const executeAsync = (
   childProcess.on("close", (code) => {
     Logger.debug(`child process exited with code ${code}`);
 
-    const index = childProcesses.indexOf(childProcess);
-    if (index !== -1) childProcesses.splice(index, 1);
-
     const AUTHORIZED_CODES = [
       0, // Success
       130, // SIGINT
@@ -102,8 +76,6 @@ export const executeAsync = (
   childProcess.on("error", (err) => {
     Logger.error(`Process for ${commandLabel} errored with ${err}`);
   });
-
-  childProcesses.push(childProcess);
 
   return childProcess;
 };

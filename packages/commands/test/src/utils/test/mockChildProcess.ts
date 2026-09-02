@@ -26,7 +26,8 @@ const execSync = ((command: string) => ({
       case 'adb shell dumpsys display | grep -E "mRefreshRate|DisplayDeviceInfo"':
         return "fps=120";
       case "adb shell setprop debug.hwui.profile true":
-      case "adb shell atrace --async_stop 1>/dev/null":
+      case "adb shell atrace --async_stop":
+      case "adb shell pkill -INT screenrecord":
       case "adb shell chmod 755 /data/local/tmp/lantern-android-profiler":
         return "";
       case "adb shell pm list packages -3":

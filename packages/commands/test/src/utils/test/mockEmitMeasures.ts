@@ -23,24 +23,28 @@ const mockSpawn = (): MockChild => {
 export const aTraceMock = mockSpawn();
 export const perfProfilerMock = mockSpawn();
 
-spyOn(require("child_process") as typeof childProcess, "spawn")
-  .mockImplementationOnce(((command: string, args: readonly string[]) => {
+// Matched by arguments rather than by call order: the session spawns atrace and the profiler
+// itself, and restarts atrace when its tracing budget expires
+spyOn(require("child_process") as typeof childProcess, "spawn").mockImplementation(((
+  command: string,
+  args: readonly string[]
+) => {
+  if (args.includes("atrace")) {
     expect([command, args]).toEqual(["adb", ["shell", "atrace", "-c", "view", "-t", "999"]]);
     return aTraceMock;
-  }) as unknown as typeof childProcess.spawn)
-  .mockImplementationOnce(((command: string, args: readonly string[]) => {
-    expect([command, args]).toEqual([
-      "adb",
-      [
-        "shell",
-        "/data/local/tmp/lantern-android-profiler",
-        "pollPerformanceMeasures",
-        "com.example",
-        "500",
-      ],
-    ]);
-    return perfProfilerMock;
-  }) as unknown as typeof childProcess.spawn);
+  }
+  expect([command, args]).toEqual([
+    "adb",
+    [
+      "shell",
+      "/data/local/tmp/lantern-android-profiler",
+      "pollPerformanceMeasures",
+      "com.example",
+      "500",
+    ],
+  ]);
+  return perfProfilerMock;
+}) as unknown as typeof childProcess.spawn);
 
 /** readline dispatches "line" events asynchronously: wait a tick after writing to the mocks */
 export const flushLines = () => new Promise((resolve) => setTimeout(resolve, 0));

@@ -5,6 +5,9 @@ import { createInterface } from "readline";
 import { Logger } from "@lantern/logger";
 import {
   ERROR_MARKER,
+  ProfilingSessionBase,
+  describeExit,
+  terminateChild,
   lastErrorMessage,
   parseMarkerLine,
   parseProfilerLine,
@@ -15,8 +18,8 @@ import {
   Measure,
   POLLING_INTERVAL,
   Profiler,
-  ProfilerPollingOptions,
-  ScreenRecorder,
+  ProfilingSession,
+  StartSessionOptions,
 } from "@lantern/types";
 
 const BINARY_NAME = "lantern-ios-profiler";
@@ -152,24 +155,25 @@ interface MeasureLine {
   pid: number;
 }
 
-/** Delay between the SIGINT asking the poller to tear down and the SIGKILL that forces it. */
-const STOP_KILL_TIMEOUT_MS = 3000;
+/** Owns the `poll` child of one iOS profiling run. */
+class IOSProfilingSession extends ProfilingSessionBase {
+  private child: ChildProcess | undefined;
+  private stopRequested = false;
 
-export class IOSProfiler implements Profiler {
-  private polling: ChildProcess | undefined;
-  private refreshRate: number | undefined;
+  constructor(bundleId: string, options: StartSessionOptions = {}) {
+    super(bundleId, options);
+    this.start();
+  }
 
-  pollPerformanceMeasures(bundleId: string, options: ProfilerPollingOptions): { stop: () => void } {
+  protected async launch(): Promise<void> {
     const child = spawn(getBinaryPath(), [
       "poll",
       "--bundle-id",
-      bundleId,
+      this.bundleId,
       "--interval-ms",
       `${POLLING_INTERVAL}`,
     ]);
-    this.polling = child;
-    let stopRequested = false;
-    let killTimer: NodeJS.Timeout | undefined;
+    this.child = child;
 
     createInterface({ input: child.stdout }).on("line", (rawLine) => {
       const line = parseProfilerLine<MeasureLine>(rawLine);
@@ -186,13 +190,11 @@ export class IOSProfiler implements Profiler {
             fps: line.fps,
             time: line.time,
           };
-          options.onMeasure(measure);
+          this.emitMeasure(measure);
           break;
         }
         case "status": {
-          if (line.event === "started") {
-            options.onStartMeasuring?.();
-          }
+          if (line.event === "started") this.emitStarted();
           const message = `iOS profiler: ${line.event}${line.detail ? ` (${line.detail})` : ""}`;
           if (line.event === "stalled") {
             Logger.warn(message);
@@ -222,38 +224,47 @@ export class IOSProfiler implements Profiler {
     });
 
     child.on("close", (code, signal) => {
-      if (killTimer) clearTimeout(killTimer);
-      if (this.polling === child) this.polling = undefined;
-
-      const exit = signal ? `signal ${signal}` : `code ${code}`;
-      const reason = stopRequested
+      const exit = describeExit(code, signal);
+      const reason = this.stopRequested
         ? `stopped (${exit})`
         : `${BINARY_NAME} exited unexpectedly (${exit})`;
-      if (!stopRequested) {
+      if (!this.stopRequested) {
         Logger.error(
           `${reason}: no more measures will be collected. Check the ${ERROR_MARKER}* lines above.`
         );
       }
-      options.onEnd?.(reason);
+      this.emitEnded(reason);
     });
+  }
 
-    return {
-      stop: () => {
-        if (stopRequested) return;
-        stopRequested = true;
-        // SIGINT lets the binary tear down its instruments taps cleanly; a poller stuck on a
-        // dead connection gets SIGKILLed so stop() never leaves a process behind.
-        child.kill("SIGINT");
-        killTimer = setTimeout(() => {
-          if (child.exitCode === null && child.signalCode === null) {
-            Logger.warn(`${BINARY_NAME} did not exit after SIGINT, sending SIGKILL`);
-            child.kill("SIGKILL");
-          }
-        }, STOP_KILL_TIMEOUT_MS);
-        killTimer.unref();
-        this.polling = undefined;
-      },
-    };
+  protected async doStop(): Promise<void> {
+    this.terminate();
+    await this.ended;
+  }
+
+  protected doDispose(): void {
+    this.terminate();
+  }
+
+  private terminate() {
+    if (this.stopRequested) return;
+    this.stopRequested = true;
+    if (!this.child) return;
+    terminateChild(this.child, {
+      onEscalate: () => Logger.warn(`${BINARY_NAME} did not exit after SIGINT, sending SIGKILL`),
+    });
+  }
+}
+
+export class IOSProfiler implements Profiler {
+  private refreshRate: number | undefined;
+
+  startSession(bundleId: string, options: StartSessionOptions = {}): ProfilingSession {
+    if (options.recording) {
+      Logger.warn("Screen recording is not supported on iOS, no video will be recorded");
+    }
+
+    return new IOSProfilingSession(bundleId, { ...options, recording: undefined });
   }
 
   detectCurrentBundleId(): string {
@@ -320,14 +331,9 @@ export class IOSProfiler implements Profiler {
     }
   }
 
-  getScreenRecorder(): ScreenRecorder | undefined {
-    return undefined;
+  supportsScreenRecording(): boolean {
+    return false;
   }
-
-  cleanup: () => void = () => {
-    this.polling?.kill("SIGINT");
-    this.polling = undefined;
-  };
 
   async stopApp(bundleId: string): Promise<void> {
     await new Promise<void>((resolve) => {

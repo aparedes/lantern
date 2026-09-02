@@ -24,7 +24,7 @@ describe("PerformanceMeasurer", () => {
       },
     });
     await measurer.start();
-    await waitFor(() => measurer.polling);
+    await waitFor(() => measurer.session);
     emitStarted();
     // The profiler reports it has started measuring once it took its first (baseline) sample
     emitMeasure(0);

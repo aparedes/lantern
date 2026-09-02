@@ -91,3 +91,16 @@ command, earlier ones are context).
 | Android  | `ERROR_PID_CLOSED`                                                                                    | `printPerformanceMeasure`: the pid is gone                        |
 | iOS      | `WARN_TUNNEL_FAILED`                                                                                  | CoreDevice tunnel unavailable, lockdown fallback attempted        |
 | iOS      | `ERROR_NO_DEVICE`, `ERROR_SERVICE_FAILED`, `ERROR_APP_NOT_FOUND`, `ERROR_STREAM_ENDED`, `ERROR_USAGE` | See `rust-profiler/README.md`                                     |
+
+## Sessions
+
+`ProfilingSessionBase` is the platform-independent half of a `ProfilingSession` (see
+`@lantern/types`): event fan-out (`measure`, `started`, `restarted`, `ended`), the `launched` /
+`started` / `ended` promises, the `measures()` async iterator, idempotent `stop()` / `dispose()`
+and the live-session registry. `@lantern/android` and `@lantern/ios` subclass it with their
+process handling; `terminateChild` is the shared "SIGINT, then SIGKILL after 3 s" stop.
+
+`installSignalHandlers()` is called once by every CLI entry point: on SIGINT / SIGQUIT / SIGTERM
+it disposes every live session (killing the profiler, atrace and the screen recorder, and
+turning the device's tracing off) before exiting. Nothing is registered at import time, so a
+library consumer keeps its own signal handling.

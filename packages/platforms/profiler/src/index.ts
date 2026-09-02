@@ -151,3 +151,5 @@ export const resolvePlatform = async (
 // TODO move this to a separate package
 export { waitFor } from "@lantern/android";
 export { disposeAllSessions, installSignalHandlers } from "@lantern/profiler-protocol";
+export { applyCommonOptions, registerCommonOptions } from "./cli";
+export type { CommonOptions } from "./cli";

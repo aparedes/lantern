@@ -1,7 +1,6 @@
 import { Command, Option } from "commander";
 import type { TestCase } from "./measurePerformance";
 import { executeAsync } from "./executeAsync";
-import { applyLogLevelOption, logLevelOption } from "./commands/logLevelOption";
 import {
   parseBitRate,
   parseDuration,
@@ -11,14 +10,14 @@ import {
 import { PerformanceTester } from "./PerformanceTester";
 import { Logger } from "@lantern/logger";
 import {
-  DeviceSelectionError,
-  PlatformResolutionError,
+  CommonOptions,
+  applyCommonOptions,
   profiler,
-  selectPlatformAndDevice,
+  registerCommonOptions,
 } from "@lantern/profiler";
 
 export const registerTestCommand = (program: Command) => {
-  program
+  const testCommand = program
     .command("test")
     .summary("Run a test several times and measure performance")
     .description(
@@ -88,23 +87,11 @@ lantern test --bundleId com.example.app --testCommand "maestro test flow.yml"
         "--skipRestart",
         "By default, Lantern closes the app before each iteration. This is useful if your e2e test starts the app, if it doesn't, add this flag"
       ).default(false)
-    )
-    .addOption(
-      new Option(
-        "--platform <platform>",
-        "android or ios. Defaults to the PLATFORM env var, then to whichever platform has a device connected"
-      ).choices(["android", "ios"])
-    )
-    .addOption(
-      new Option(
-        "--device <serial|udid>",
-        "Serial (Android) or UDID (iOS) of the device to use; required when several devices of the selected platform are connected"
-      )
-    )
-    .addOption(logLevelOption)
-    .action(async (options) => {
-      await runTest(options);
-    });
+    );
+
+  registerCommonOptions(testCommand).action(async (options) => {
+    await runTest(options);
+  });
 };
 
 const runTest = async ({
@@ -118,14 +105,12 @@ const runTest = async ({
   resultsFilePath,
   resultsTitle,
   afterEachCommand,
-  logLevel,
   record,
   recordSize,
   recordBitRate,
   skipRestart,
-  platform,
-  device,
-}: {
+  ...commonOptions
+}: CommonOptions & {
   duration?: number;
   iterationCount?: number;
   maxRetries?: number;
@@ -136,30 +121,12 @@ const runTest = async ({
   bundleId: string;
   resultsFilePath?: string;
   resultsTitle?: string;
-  logLevel?: string;
   record?: boolean;
   recordSize?: string;
   recordBitRate?: number;
   skipRestart?: boolean;
-  platform?: string;
-  device?: string;
 }) => {
-  applyLogLevelOption(logLevel);
-
-  let resolvedPlatform: string;
-  try {
-    const selection = await selectPlatformAndDevice(platform, device);
-    resolvedPlatform = selection.platform;
-    Logger.info(
-      `Using ${resolvedPlatform} device ${selection.device.name} (${selection.device.id})`
-    );
-  } catch (error) {
-    if (error instanceof PlatformResolutionError || error instanceof DeviceSelectionError) {
-      Logger.error(error.message);
-      process.exit(1);
-    }
-    throw error;
-  }
+  const { platform: resolvedPlatform } = await applyCommonOptions(commonOptions);
 
   if (record && !profiler.supportsScreenRecording()) {
     Logger.warn(

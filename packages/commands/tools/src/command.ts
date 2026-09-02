@@ -1,50 +1,31 @@
-import { Command, Option } from "commander";
+import { Command } from "commander";
 import { processVideoFile } from "@lantern/shell";
 import { Logger } from "@lantern/logger";
 import {
-  DeviceSelectionError,
-  PlatformResolutionError,
+  CommonOptions,
+  applyCommonOptions,
   profiler,
-  selectPlatformAndDevice,
+  registerCommonOptions,
 } from "@lantern/profiler";
 import fs from "fs";
 
 export const registerToolsCommand = (program: Command) => {
   const toolsCommand = program.command("tools").description("Utility tools related to Lantern");
 
-  toolsCommand
-    .command("get_bundle_id")
-    .description("Retrieves the bundle id of the app currently running on the device")
-    .addOption(
-      new Option(
-        "--platform <platform>",
-        "android or ios. Defaults to the PLATFORM env var, then to whichever platform has a device connected"
-      ).choices(["android", "ios"])
-    )
-    .addOption(
-      new Option(
-        "--device <serial|udid>",
-        "Serial (Android) or UDID (iOS) of the device to use; required when several devices of the selected platform are connected"
-      )
-    )
-    .action(async (options) => {
-      try {
-        await selectPlatformAndDevice(options.platform, options.device);
-      } catch (error) {
-        if (error instanceof PlatformResolutionError || error instanceof DeviceSelectionError) {
-          Logger.error(error.message);
-          process.exit(1);
-        }
-        throw error;
-      }
+  registerCommonOptions(
+    toolsCommand
+      .command("get_bundle_id")
+      .description("Retrieves the bundle id of the app currently running on the device")
+  ).action(async (options: CommonOptions) => {
+    await applyCommonOptions(options);
 
-      try {
-        console.log(await profiler.detectCurrentBundleId());
-      } finally {
-        // The iOS profiler keeps a `serve` process alive; release it so the CLI can exit
-        profiler.dispose();
-      }
-    });
+    try {
+      console.log(await profiler.detectCurrentBundleId());
+    } finally {
+      // The iOS profiler keeps a `serve` process alive; release it so the CLI can exit
+      profiler.dispose();
+    }
+  });
 
   toolsCommand
     .command("video_fix_metadata <videoFilePath>")

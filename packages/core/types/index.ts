@@ -156,23 +156,34 @@ export interface StartSessionOptions {
   recording?: { videoPath: string; bitRate?: number; size?: string };
 }
 
+/**
+ * One platform's device access. Long-lived: on iOS it keeps a single `serve` process (and its
+ * device tunnel) alive across calls, so `dispose()` once done with it.
+ */
 export interface Profiler {
+  /**
+   * Starts profiling `bundleId`. Synchronous: the returned session's `launched` promise covers
+   * the asynchronous setup (device resolution, binary install, screen recording...).
+   */
   startSession: (bundleId: string, options?: StartSessionOptions) => ProfilingSession;
   /**
    * The device this profiler works with: the one asked for (`--device`), else the only
-   * connected one. Throws a `DeviceSelectionError` naming the connected devices otherwise.
+   * connected one. Rejects with a `DeviceSelectionError` naming the connected devices otherwise.
    */
-  resolveDevice: () => DeviceInfo;
-  detectCurrentBundleId: () => string;
-  installProfilerOnDevice: () => void;
+  resolveDevice: () => Promise<DeviceInfo>;
+  detectCurrentBundleId: () => Promise<string>;
+  /** Idempotent: repeated calls share the first installation. */
+  installProfilerOnDevice: () => Promise<void>;
   /** Whether `StartSessionOptions.recording` is honoured on this platform. */
   supportsScreenRecording: () => boolean;
   stopApp: (bundleId: string) => Promise<void>;
-  detectDeviceRefreshRate: () => number;
+  detectDeviceRefreshRate: () => Promise<number>;
   /** Installed, user-launchable apps. Used to populate the measure web app's picker. */
   listApps: () => Promise<AppInfo[]>;
-  /** Devices reachable right now; `[]` when the platform tooling is missing. Must not throw. */
-  listDevices: () => DeviceInfo[];
+  /** Devices reachable right now; `[]` when the platform tooling is missing. Never rejects. */
+  listDevices: () => Promise<DeviceInfo[]>;
+  /** Releases what the profiler holds across sessions (the iOS `serve` process). Idempotent. */
+  dispose: () => void;
 }
 
 export interface DeviceSpecs {

@@ -19,7 +19,7 @@ import { profiler } from "@lantern/profiler";
 
 const mockPerformancePolling = new PerformancePollingMock();
 
-spyOn(profiler, "installProfilerOnDevice").mockImplementation(() => undefined);
+spyOn(profiler, "installProfilerOnDevice").mockImplementation(async () => undefined);
 spyOn(profiler, "startSession").mockImplementation(mockPerformancePolling.start);
 
 Logger.setLogLevel(LogLevel.SILENT);

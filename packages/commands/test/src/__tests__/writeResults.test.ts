@@ -17,7 +17,7 @@ import * as writeReport from "../writeReport";
 import { Logger, LogLevel } from "@lantern/logger";
 import { profiler } from "@lantern/profiler";
 
-spyOn(profiler, "installProfilerOnDevice").mockImplementation(() => undefined);
+spyOn(profiler, "installProfilerOnDevice").mockImplementation(async () => undefined);
 
 Logger.setLogLevel(LogLevel.SILENT);
 

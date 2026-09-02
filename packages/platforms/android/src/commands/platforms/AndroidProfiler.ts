@@ -44,8 +44,8 @@ export class AndroidProfiler implements Profiler {
   /** The `--device` serial the caller asked for, before resolution. */
   readonly requestedDevice: string | undefined;
   private readonly selfProfiling: boolean;
-  private device: DeviceInfo | undefined;
-  private hasInstalledProfiler = false;
+  private device: Promise<DeviceInfo> | undefined;
+  private installation: Promise<void> | undefined;
   private cpuClockTick: number | undefined;
   private RAMPageSize: number | undefined;
 
@@ -58,23 +58,24 @@ export class AndroidProfiler implements Profiler {
    * The device every adb call targets: the requested serial, else the only connected device.
    * Resolved once, on first use, so that a plain `listDevices()` never needs a device.
    */
-  resolveDevice(): DeviceInfo {
-    this.device ??= selectDevice(listAndroidDevices(), {
-      requested: this.requestedDevice,
-      platformName: "Android",
-      idLabel: "serial",
+  resolveDevice(): Promise<DeviceInfo> {
+    this.device ??= this.listDevices().then((devices) =>
+      selectDevice(devices, {
+        requested: this.requestedDevice,
+        platformName: "Android",
+        idLabel: "serial",
+      })
+    );
+    // A failed resolution is not final: the device may get plugged in before the next call
+    this.device.catch(() => {
+      this.device = undefined;
     });
 
     return this.device;
   }
 
-  private get serial(): string {
-    return this.resolveDevice().id;
-  }
-
-  /** `adb <args>` on the resolved device. */
-  private adb(args: string[]): string {
-    return adb(args, { serial: this.serial });
+  private async serial(): Promise<string> {
+    return (await this.resolveDevice()).id;
   }
 
   /**
@@ -83,44 +84,51 @@ export class AndroidProfiler implements Profiler {
    * It will:
    * - install the profiler binary for the correct architecture on the device
    * - Populate needed values like CPU clock tick and RAM page size
+   * - Detect the device's refresh rate, the FPS target
    *
-   * This needs to be done before measures and can take a few seconds
+   * This needs to be done before measures and can take a few seconds. Concurrent and repeated
+   * calls share the first installation; a failed one is retried by the next call.
    */
-  public installProfilerOnDevice(): void {
-    if (!this.hasInstalledProfiler) {
-      this.assertSupported();
-      this.installCppProfilerOnDevice();
-      this.cpuClockTick = this.readDeviceNumber("printCpuClockTick");
-      this.RAMPageSize = this.readDeviceNumber("printRAMPageSize");
-    }
-    this.hasInstalledProfiler = true;
-    if (!this.selfProfiling && !refreshRateManager.isInitialized()) {
-      refreshRateManager.setRefreshRate(this.serial);
-    }
+  installProfilerOnDevice(): Promise<void> {
+    this.installation ??= this.install();
+    this.installation.catch(() => {
+      this.installation = undefined;
+    });
+
+    return this.installation;
   }
 
-  private readDeviceNumber(profilerCommand: string): number {
-    return parseInt(this.adb(["shell", this.getDeviceProfilerPath(), profilerCommand]), 10);
+  private async install(): Promise<void> {
+    const serial = await this.serial();
+    this.assertSupported(serial);
+    this.installCppProfilerOnDevice(serial);
+    this.cpuClockTick = this.readDeviceNumber(serial, "printCpuClockTick");
+    this.RAMPageSize = this.readDeviceNumber(serial, "printRAMPageSize");
+    await this.detectDeviceRefreshRate();
   }
 
+  private readDeviceNumber(serial: string, profilerCommand: string): number {
+    return parseInt(adb(["shell", this.getDeviceProfilerPath(), profilerCommand], { serial }), 10);
+  }
+
+  /** Known once `installProfilerOnDevice` resolved. */
   getCpuClockTick(): number {
-    this.installProfilerOnDevice();
     if (!this.cpuClockTick) {
       throw new Error("CPU clock tick not initialized");
     }
     return this.cpuClockTick;
   }
 
+  /** Known once `installProfilerOnDevice` resolved. */
   getRAMPageSize(): number {
-    this.installProfilerOnDevice();
     if (!this.RAMPageSize) {
       throw new Error("RAM Page size not initialized");
     }
     return this.RAMPageSize;
   }
 
-  private assertSupported(): void {
-    const sdkVersion = parseInt(this.adb(["shell", "getprop", "ro.build.version.sdk"]), 10);
+  private assertSupported(serial: string): void {
+    const sdkVersion = parseInt(adb(["shell", "getprop", "ro.build.version.sdk"], { serial }), 10);
 
     if (sdkVersion < 24) {
       throw new Error(
@@ -129,8 +137,8 @@ export class AndroidProfiler implements Profiler {
     }
   }
 
-  private installCppProfilerOnDevice(): void {
-    const abi = getAbi(this.serial);
+  private installCppProfilerOnDevice(serial: string): void {
+    const abi = getAbi(serial);
     Logger.info(`Installing profiler for ${abi} architecture`);
 
     const binaryPath = `${getBinaryFolder()}/${CppProfilerName}-${abi}`;
@@ -145,8 +153,8 @@ export class AndroidProfiler implements Profiler {
     fs.writeFileSync(binaryTmpPath, fs.readFileSync(binaryPath));
 
     const devicePath = this.getDeviceProfilerPath();
-    this.adb(["push", binaryTmpPath, devicePath]);
-    this.adb(["shell", "chmod", "755", devicePath]);
+    adb(["push", binaryTmpPath, devicePath], { serial });
+    adb(["shell", "chmod", "755", devicePath], { serial });
     Logger.success(`Profiler installed in ${devicePath}`);
   }
 
@@ -156,21 +164,24 @@ export class AndroidProfiler implements Profiler {
 
   /**
    * Starts the native profiler on the device for `bundleId`, along with atrace (for FPS) and
-   * the screen recorder when asked: the returned session owns all of them.
+   * the screen recorder when asked: the returned session owns all of them. The device is
+   * resolved and the profiler installed as part of the session's launch.
    */
   startSession(bundleId: string, options: StartSessionOptions = {}): ProfilingSession {
-    this.installProfilerOnDevice();
-
     return new AndroidProfilingSession(
       bundleId,
-      {
-        serial: this.serial,
-        deviceProfilerPath: this.getDeviceProfilerPath(),
-        profilerName: CppProfilerName,
-        cpuClockTick: this.getCpuClockTick(),
-        ramPageSize: this.getRAMPageSize(),
-        supportFPS: this.supportFPS(),
-        withAtrace: !this.selfProfiling,
+      async () => {
+        await this.installProfilerOnDevice();
+
+        return {
+          serial: await this.serial(),
+          deviceProfilerPath: this.getDeviceProfilerPath(),
+          profilerName: CppProfilerName,
+          cpuClockTick: this.getCpuClockTick(),
+          ramPageSize: this.getRAMPageSize(),
+          supportFPS: this.supportFPS(),
+          withAtrace: !this.selfProfiling,
+        };
       },
       options
     );
@@ -184,16 +195,17 @@ export class AndroidProfiler implements Profiler {
     return !this.selfProfiling;
   }
 
-  public detectCurrentBundleId(): string {
+  public async detectCurrentBundleId(): Promise<string> {
     if (this.selfProfiling) return CppProfilerName;
 
-    return detectCurrentAppBundleId(this.serial).bundleId;
+    return detectCurrentAppBundleId(await this.serial()).bundleId;
   }
 
   async stopApp(bundleId: string) {
-    this.adb(["shell", "am", "force-stop", bundleId]);
+    const serial = await this.serial();
+    adb(["shell", "am", "force-stop", bundleId], { serial });
     try {
-      await waitFor(() => !isDeviceProcessRunning(bundleId, this.serial), {
+      await waitFor(() => !isDeviceProcessRunning(bundleId, serial), {
         timeout: STOP_APP_TIMEOUT,
         checkInterval: 100,
       });
@@ -202,17 +214,28 @@ export class AndroidProfiler implements Profiler {
     }
   }
 
-  public detectDeviceRefreshRate(): number {
+  /**
+   * Detected once per process (`refreshRateManager` is what `FrameTimeParser.getFps` reads
+   * synchronously while measures flow).
+   */
+  public async detectDeviceRefreshRate(): Promise<number> {
     if (this.selfProfiling) return SELF_PROFILING_REFRESH_RATE;
+
+    if (!refreshRateManager.isInitialized()) {
+      refreshRateManager.setRefreshRate(await this.serial());
+    }
 
     return refreshRateManager.getRefreshRate();
   }
 
-  public listApps(): Promise<AppInfo[]> {
-    return listInstalledApps(this.serial);
+  public async listApps(): Promise<AppInfo[]> {
+    return listInstalledApps(await this.serial());
   }
 
-  public listDevices(): DeviceInfo[] {
+  public async listDevices(): Promise<DeviceInfo[]> {
     return listAndroidDevices();
   }
+
+  /** Nothing outlives a session on Android: every adb call is a one-shot. */
+  public dispose(): void {}
 }

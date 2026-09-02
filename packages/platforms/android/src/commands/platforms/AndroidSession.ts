@@ -71,17 +71,33 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
   private recorder: ScreenRecorder | undefined;
   private recordingStarted = false;
   private stopRequested = false;
+  /** Known once `prepare` resolved (device resolved, profiler installed). */
+  private config: AndroidSessionConfig | undefined;
 
   constructor(
     bundleId: string,
-    private readonly config: AndroidSessionConfig,
+    /** Resolves the device and installs the profiler; its failure ends the session */
+    private readonly prepare: () => Promise<AndroidSessionConfig>,
     options: StartSessionOptions = {}
   ) {
     super(bundleId, options);
     this.start();
   }
 
+  /** The configuration, once the session is past its preparation. */
+  private get cfg(): AndroidSessionConfig {
+    if (!this.config) throw new Error("The session is not prepared yet");
+
+    return this.config;
+  }
+
   protected async launch(): Promise<void> {
+    this.config = await this.prepare();
+    if (this.disposed || this.stopRequested) {
+      this.emitEnded("stopped before the profiler started");
+      return;
+    }
+
     const { recording } = this.options;
     if (recording) {
       this.recorder = new ScreenRecorder(basename(recording.videoPath), this.config.serial);
@@ -96,7 +112,7 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
       return;
     }
 
-    if (this.config.withAtrace) this.startATrace();
+    if (this.cfg.withAtrace) this.startATrace();
     this.spawnProfiler();
   }
 
@@ -105,7 +121,7 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
     if (this.profilerProcess) {
       terminateChild(this.profilerProcess, {
         onEscalate: () =>
-          Logger.warn(`${this.config.profilerName} did not exit after SIGINT, sending SIGKILL`),
+          Logger.warn(`${this.cfg.profilerName} did not exit after SIGINT, sending SIGKILL`),
       });
       await this.ended;
     } else {
@@ -141,24 +157,24 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
     const process = adbAsync(
       [
         "shell",
-        this.config.deviceProfilerPath,
+        this.cfg.deviceProfilerPath,
         "pollPerformanceMeasures",
         this.bundleId,
         `${POLLING_INTERVAL}`,
       ],
-      { serial: this.config.serial, logStderr: false }
+      { serial: this.cfg.serial, logStderr: false }
     );
     this.profilerProcess = process;
 
     let initialTime: number | null = null;
     let previousTime: number | null = null;
-    let cpuMeasuresAggregator = new CpuMeasureAggregator(this.config.cpuClockTick);
+    let cpuMeasuresAggregator = new CpuMeasureAggregator(this.cfg.cpuClockTick);
     let frameTimeParser = new FrameTimeParser();
 
     const reset = () => {
       initialTime = null;
       previousTime = null;
-      cpuMeasuresAggregator = new CpuMeasureAggregator(this.config.cpuClockTick);
+      cpuMeasuresAggregator = new CpuMeasureAggregator(this.cfg.cpuClockTick);
       frameTimeParser = new FrameTimeParser();
     };
 
@@ -167,7 +183,7 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
         Logger.debug("NO ATRACE OUTPUT, if the app is idle, that is normal");
       }
       const subProcessesStats = processOutput(cpu, pid);
-      const ram = processRamOutput(ramStr, this.config.ramPageSize);
+      const ram = processRamOutput(ramStr, this.cfg.ramPageSize);
 
       let output;
       try {
@@ -193,7 +209,7 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
             cpuMeasures.perName[ThreadNames.FLUTTER.UI] || 0
           )
         );
-        const measure: Measure = this.config.supportFPS
+        const measure: Measure = this.cfg.supportFPS
           ? { cpu: cpuMeasures, fps, ram, time: timestamp - initialTime }
           : { cpu: cpuMeasures, ram, time: timestamp - initialTime };
         this.emitMeasure(measure);
@@ -268,7 +284,7 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
       const exit = describeExit(code, signal);
       const reason = this.stopRequested
         ? `stopped (${exit})`
-        : `${this.config.profilerName} exited unexpectedly (${exit})`;
+        : `${this.cfg.profilerName} exited unexpectedly (${exit})`;
       if (!this.stopRequested) {
         Logger.error(`${reason}: no more measures will be collected`);
       }
@@ -279,12 +295,12 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
   private startATrace() {
     // Done here rather than at import time so that a machine without `adb` (iOS only) can
     // still load this package.
-    enableFpsDebug(this.config.serial);
+    enableFpsDebug(this.cfg.serial);
 
     Logger.debug("Stopping atrace and flushing output...");
-    stopDeviceTracing(this.config.serial);
+    stopDeviceTracing(this.cfg.serial);
     Logger.debug("Starting atrace...");
-    const aTraceProcess = adbAsync(ATRACE_ARGS, { serial: this.config.serial });
+    const aTraceProcess = adbAsync(ATRACE_ARGS, { serial: this.cfg.serial });
     this.aTraceProcess = aTraceProcess;
 
     // atrace dumps its buffer on stdout when it stops, drain it so it never blocks on a full pipe
@@ -319,12 +335,13 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
   }
 
   private stopATrace() {
-    if (!this.config.withAtrace) return;
+    // Nothing to stop before the session is prepared, or without atrace
+    if (!this.config?.withAtrace) return;
     // We need to close this process, otherwise tests will hang
     Logger.debug("Stopping atrace process...");
     this.aTraceProcess?.kill();
     this.aTraceProcess = null;
     // The device keeps tracing after its client is gone; a stopped session must not leave it on
-    stopDeviceTracing(this.config.serial);
+    stopDeviceTracing(this.cfg.serial);
   }
 }

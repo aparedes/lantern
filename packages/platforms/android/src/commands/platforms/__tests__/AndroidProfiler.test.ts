@@ -75,6 +75,9 @@ const atraceStopCalls = () =>
 const atraceProcesses = () => spawned.filter(({ args }) => args.includes("atrace"));
 const profilerProcess = () => spawned.find(({ args }) => args.includes("pollPerformanceMeasures"));
 
+/** A session spawns its processes once its (async) preparation is over */
+const launched = (session: { launched: Promise<void> }) => session.launched.catch(() => {});
+
 beforeEach(() => {
   spawned = [];
   connectedDevices = [SERIAL];
@@ -85,58 +88,77 @@ afterAll(() => mock.restore());
 
 describe("AndroidProfiler", () => {
   describe("device resolution", () => {
-    it("uses the only connected device and targets every adb call at it", () => {
+    it("uses the only connected device and targets every adb call at it", async () => {
       const profiler = new AndroidProfiler();
 
-      expect(profiler.resolveDevice()).toEqual({
+      expect(await profiler.resolveDevice()).toEqual({
         id: SERIAL,
         name: "Pixel 7",
         platform: "android",
       });
-      profiler.installProfilerOnDevice();
+      await profiler.installProfilerOnDevice();
 
       expect(adbCalls()).toContain(`-s ${SERIAL} shell getprop ro.build.version.sdk`);
       expect(adbCalls()).toContain(`-s ${SERIAL} shell chmod 755 ${PROFILER_PATH}`);
     });
 
-    it("uses the requested device", () => {
-      connectedDevices = [OTHER_SERIAL, SERIAL];
+    it("installs the profiler once, sharing the installation between callers", async () => {
+      const profiler = new AndroidProfiler();
 
-      expect(new AndroidProfiler({ serial: SERIAL }).resolveDevice().id).toBe(SERIAL);
+      await Promise.all([profiler.installProfilerOnDevice(), profiler.installProfilerOnDevice()]);
+      await profiler.installProfilerOnDevice();
+
+      expect(adbCalls().filter((call) => call.includes("chmod 755"))).toHaveLength(1);
     });
 
-    it("refuses to guess between several devices", () => {
+    it("uses the requested device", async () => {
       connectedDevices = [OTHER_SERIAL, SERIAL];
 
-      expect(() => new AndroidProfiler().resolveDevice()).toThrow(
+      expect((await new AndroidProfiler({ serial: SERIAL }).resolveDevice()).id).toBe(SERIAL);
+    });
+
+    it("refuses to guess between several devices", async () => {
+      connectedDevices = [OTHER_SERIAL, SERIAL];
+
+      await expect(new AndroidProfiler().resolveDevice()).rejects.toThrow(
         new DeviceSelectionError(
           `Several Android devices are connected (${OTHER_SERIAL}, ${SERIAL}): pass --device <serial>`
         )
       );
     });
 
-    it("rejects an unknown requested device and reports when none is connected", () => {
-      expect(() => new AndroidProfiler({ serial: "nope" }).resolveDevice()).toThrow(
+    it("rejects an unknown requested device and reports when none is connected", async () => {
+      await expect(new AndroidProfiler({ serial: "nope" }).resolveDevice()).rejects.toThrow(
         `Unknown Android device "nope" (connected: ${SERIAL})`
       );
 
       connectedDevices = [];
-      expect(() => new AndroidProfiler().startSession("com.example")).toThrow(
-        "No Android device connected"
-      );
+      const session = new AndroidProfiler().startSession("com.example");
+      await expect(session.launched).rejects.toThrow("No Android device connected");
+      expect(await session.ended).toBe("No Android device connected");
       expect(spawned).toHaveLength(0);
     });
 
-    it("lists devices without needing one", () => {
+    it("retries the device resolution once a device is connected", async () => {
+      connectedDevices = [];
+      const profiler = new AndroidProfiler();
+      await expect(profiler.resolveDevice()).rejects.toThrow("No Android device connected");
+
+      connectedDevices = [SERIAL];
+      expect((await profiler.resolveDevice()).id).toBe(SERIAL);
+    });
+
+    it("lists devices without needing one", async () => {
       connectedDevices = [];
 
-      expect(new AndroidProfiler().listDevices()).toEqual([]);
+      expect(await new AndroidProfiler().listDevices()).toEqual([]);
     });
   });
 
   describe("atrace", () => {
-    it("restarts atrace when its tracing budget expires", () => {
+    it("restarts atrace when its tracing budget expires", async () => {
       const session = new AndroidProfiler().startSession("com.example");
+      await launched(session);
       expect(atraceProcesses()).toHaveLength(1);
       expect(atraceProcesses()[0].args).toEqual([
         "-s",
@@ -156,8 +178,9 @@ describe("AndroidProfiler", () => {
       session.dispose();
     });
 
-    it("does not restart atrace when it failed, and never throws from the close handler", () => {
+    it("does not restart atrace when it failed, and never throws from the close handler", async () => {
       const session = new AndroidProfiler().startSession("com.example");
+      await launched(session);
 
       // e.g. the device got disconnected
       expect(() => atraceProcesses()[0].child.emit("close", 1, null)).not.toThrow();
@@ -170,6 +193,7 @@ describe("AndroidProfiler", () => {
 
     it("does not restart atrace once stopped, and leaves the device's tracing off", async () => {
       const session = new AndroidProfiler().startSession("com.example");
+      await launched(session);
       // Started once, flushing whatever a previous run left behind
       expect(atraceStopCalls()).toBe(1);
 
@@ -185,13 +209,14 @@ describe("AndroidProfiler", () => {
       expect(atraceStopCalls()).toBe(2);
     });
 
-    it("is not started when profiling the profiler itself", () => {
+    it("is not started when profiling the profiler itself", async () => {
       const profiler = new AndroidProfiler({ selfProfiling: true });
-      const session = profiler.startSession(profiler.detectCurrentBundleId());
+      const session = profiler.startSession(await profiler.detectCurrentBundleId());
+      await launched(session);
 
-      expect(profiler.detectCurrentBundleId()).toBe("lantern-android-profiler");
+      expect(await profiler.detectCurrentBundleId()).toBe("lantern-android-profiler");
       expect(profiler.supportFPS()).toBe(false);
-      expect(profiler.detectDeviceRefreshRate()).toBe(60);
+      expect(await profiler.detectDeviceRefreshRate()).toBe(60);
       expect(atraceProcesses()).toHaveLength(0);
       expect(profilerProcess()!.args).toEqual([
         "-s",
@@ -208,8 +233,9 @@ describe("AndroidProfiler", () => {
   });
 
   describe("startSession", () => {
-    it("spawns the profiler on the resolved device", () => {
+    it("spawns the profiler on the resolved device", async () => {
       const session = new AndroidProfiler().startSession("com.example");
+      await launched(session);
 
       expect(profilerProcess()!.args).toEqual([
         "-s",
@@ -225,6 +251,7 @@ describe("AndroidProfiler", () => {
 
     it("reports an unexpected profiler exit through ended and the logger", async () => {
       const session = new AndroidProfiler().startSession("com.example");
+      await launched(session);
       const ended = jest.fn();
       session.on("ended", ended);
 
@@ -240,6 +267,7 @@ describe("AndroidProfiler", () => {
 
     it("reports the exit after stop() as expected", async () => {
       const session = new AndroidProfiler().startSession("com.example");
+      await launched(session);
 
       const stopping = session.stop();
       const { child } = profilerProcess()!;
@@ -251,8 +279,9 @@ describe("AndroidProfiler", () => {
       expect(error).not.toHaveBeenCalled();
     });
 
-    it("dispose() kills the profiler and atrace right away and stops the device's tracing", () => {
+    it("dispose() kills the profiler and atrace right away and stops the device's tracing", async () => {
       const session = new AndroidProfiler().startSession("com.example");
+      await launched(session);
 
       session.dispose();
       session.dispose();
@@ -260,6 +289,15 @@ describe("AndroidProfiler", () => {
       expect(profilerProcess()!.child.kill).toHaveBeenCalledWith("SIGINT");
       expect(atraceProcesses()[0].child.kill).toHaveBeenCalledTimes(1);
       expect(atraceStopCalls()).toBe(2);
+    });
+
+    it("dispose() before the preparation is over spawns nothing", async () => {
+      const session = new AndroidProfiler().startSession("com.example");
+      session.dispose();
+      await launched(session);
+
+      expect(spawned).toHaveLength(0);
+      expect(await session.ended).toBe("disposed before the profiler started");
     });
   });
 });

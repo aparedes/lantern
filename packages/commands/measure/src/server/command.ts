@@ -35,7 +35,10 @@ lantern measure --platform ios`
       // Resolved before Ink takes over the terminal, so a missing or ambiguous device is a plain
       // error message rather than something the web app has to surface
       try {
-        const { platform, device } = selectPlatformAndDevice(options.platform, options.device);
+        const { platform, device } = await selectPlatformAndDevice(
+          options.platform,
+          options.device
+        );
         Logger.info(`Using ${platform} device ${device.name} (${device.id})`);
       } catch (error) {
         if (error instanceof PlatformResolutionError || error instanceof DeviceSelectionError) {

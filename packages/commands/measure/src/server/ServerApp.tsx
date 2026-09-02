@@ -5,7 +5,7 @@ import { HostAndPortInfo } from "./components/HostAndPortInfo";
 import { getWebAppUrl } from "./constants";
 import { ServerSocketConnectionApp } from "./ServerSocketConnectionApp";
 import { getInk, loadInk } from "./ink";
-import { disposeAllSessions, getPlatform } from "@lantern/profiler";
+import { disposeAllSessions, getPlatform, profiler } from "@lantern/profiler";
 import { createWebAppServer } from "./webAppServer";
 
 const useCleanupOnManualExit = () => {
@@ -17,6 +17,7 @@ const useCleanupOnManualExit = () => {
     if (input === "q" || (input === "c" && key.ctrl)) {
       // Ink's raw mode swallows the SIGINT that `installSignalHandlers` would otherwise get
       disposeAllSessions();
+      profiler.dispose();
       process.exit();
     }
   });

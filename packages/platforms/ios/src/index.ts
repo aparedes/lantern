@@ -1,16 +1,10 @@
-import { ChildProcess, execFile, execFileSync, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
-import { createInterface } from "readline";
 import { Logger } from "@lantern/logger";
 import {
-  ERROR_MARKER,
+  ProfilerLine,
   ProfilingSessionBase,
-  describeExit,
-  terminateChild,
-  lastErrorMessage,
-  parseMarkerLine,
-  parseProfilerLine,
+  StatusLine,
   selectDevice,
 } from "@lantern/profiler-protocol";
 import {
@@ -22,6 +16,7 @@ import {
   ProfilingSession,
   StartSessionOptions,
 } from "@lantern/types";
+import { ServeClient } from "./serveClient";
 
 const BINARY_NAME = "lantern-ios-profiler";
 
@@ -41,17 +36,16 @@ const defaultBinaryPath = path.join(
 // LANTERN_BINARY_PATH on Android
 const getBinaryPath = () => process.env.LANTERN_IOS_BINARY_PATH || defaultBinaryPath;
 
-const MAX_BUFFER = 64 * 1024 * 1024;
-
-/** One entry of the binary's `devices` output. */
+/** One entry of the binary's `devices` result. */
 interface BinaryDevice {
   udid: string;
+  connectionType: string;
   productType: string | null;
   productVersion: string | null;
   deviceName: string | null;
 }
 
-/** One entry of the binary's `apps` / `running-apps` output. */
+/** One entry of the binary's `apps` / `running-apps` result. */
 interface BinaryApp {
   bundleId: string;
   name: string;
@@ -61,51 +55,25 @@ interface BinaryApp {
 }
 
 /**
- * The binary reports failures as `LANTERN_PROFILER_ERROR_*` on stderr and exits non-zero, which
- * `execFileSync`/`execFile` surface as an unhelpful "Command failed" — so re-throw with the
- * message the binary actually wrote whenever there is one.
+ * usbmuxd lists a device once per transport (USB, and again over the network when Wi-Fi sync
+ * is on): one `DeviceInfo` per udid, described from the USB entry when there is one.
  */
-const toBinaryError = (error: unknown): Error => {
-  const stderr = (error as { stderr?: string | Buffer | null }).stderr;
-  const message = stderr ? lastErrorMessage(stderr.toString()) : undefined;
-
-  if (message) return new Error(message);
-
-  return error instanceof Error ? error : new Error(String(error));
-};
-
-const runBinarySync = <T>(args: string[]): T => {
-  try {
-    return JSON.parse(
-      execFileSync(getBinaryPath(), args, {
-        encoding: "utf8",
-        maxBuffer: MAX_BUFFER,
-        // Capture stderr instead of letting it through to the terminal: `listDevices` probes
-        // for a device and swallows failures, and the marker line is re-thrown as the message.
-        stdio: ["ignore", "pipe", "pipe"],
-      })
-    );
-  } catch (error) {
-    throw toBinaryError(error);
+export const toDeviceInfos = (devices: BinaryDevice[]): DeviceInfo[] => {
+  const byUdid = new Map<string, BinaryDevice>();
+  for (const device of devices) {
+    const known = byUdid.get(device.udid);
+    if (!known || (known.connectionType !== "Usb" && device.connectionType === "Usb")) {
+      byUdid.set(device.udid, device);
+    }
   }
+
+  return Array.from(byUdid.values(), (device) => ({
+    id: device.udid,
+    name: device.deviceName ?? device.productType ?? device.udid,
+    platform: "ios" as const,
+    model: device.productType ?? undefined,
+  }));
 };
-
-const runBinary = <T>(args: string[]): Promise<T> =>
-  new Promise((resolve, reject) =>
-    execFile(getBinaryPath(), args, { maxBuffer: MAX_BUFFER }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(lastErrorMessage(stderr) ?? error.message));
-
-        return;
-      }
-
-      try {
-        resolve(JSON.parse(stdout));
-      } catch (parseError) {
-        reject(parseError instanceof Error ? parseError : new Error(String(parseError)));
-      }
-    })
-  );
 
 /**
  * ProMotion (120 Hz) models; everything else reports 60. Best-effort table — the
@@ -156,18 +124,15 @@ interface MeasureLine {
   pid: number;
 }
 
-/** `--udid <udid>` appended to a subcommand's arguments, when a device was picked. */
-const withUdid = (args: string[], udid: string | undefined): string[] =>
-  udid ? [...args, "--udid", udid] : args;
-
-/** Owns the `poll` child of one iOS profiling run. */
+/** One `poll` over the profiler's `serve` child, which outlives the session. */
 class IOSProfilingSession extends ProfilingSessionBase {
-  private child: ChildProcess | undefined;
   private stopRequested = false;
 
   constructor(
     bundleId: string,
-    private readonly udid: string,
+    private readonly client: ServeClient,
+    /** Resolves the device (so an ambiguous or unknown `--device` fails here, with its message) */
+    private readonly prepare: () => Promise<void>,
     options: StartSessionOptions = {}
   ) {
     super(bundleId, options);
@@ -175,93 +140,97 @@ class IOSProfilingSession extends ProfilingSessionBase {
   }
 
   protected async launch(): Promise<void> {
-    const child = spawn(
-      getBinaryPath(),
-      withUdid(
-        ["poll", "--bundle-id", this.bundleId, "--interval-ms", `${POLLING_INTERVAL}`],
-        this.udid
-      )
-    );
-    this.child = child;
+    await this.prepare();
+    if (this.disposed) {
+      this.emitEnded("disposed before the profiler started");
+      return;
+    }
 
-    createInterface({ input: child.stdout }).on("line", (rawLine) => {
-      const line = parseProfilerLine<MeasureLine>(rawLine);
-      if (!line) {
-        Logger.debug(`Unparseable profiler output: ${rawLine}`);
-        return;
-      }
-
-      switch (line.type) {
-        case "measure": {
-          const measure: Measure = {
-            cpu: line.cpu,
-            ram: line.ram,
-            fps: line.fps,
-            time: line.time,
-          };
-          this.emitMeasure(measure);
-          break;
-        }
-        case "status": {
-          if (line.event === "started") this.emitStarted();
-          const message = `iOS profiler: ${line.event}${line.detail ? ` (${line.detail})` : ""}`;
-          if (line.event === "stalled") {
-            Logger.warn(message);
-          } else {
-            Logger.debug(message);
-          }
-          break;
-        }
-      }
+    // Registered before the request: the `started` status can share a chunk with the response
+    this.client.beginStream({
+      onLine: (line) => this.onLine(line as ProfilerLine<MeasureLine>),
+      onClosed: (reason) => this.end(reason),
     });
+    try {
+      await this.client.request("poll", {
+        bundleId: this.bundleId,
+        intervalMs: POLLING_INTERVAL,
+        fps: true,
+      });
+    } catch (error) {
+      this.client.endStream();
+      throw error;
+    }
+  }
 
-    createInterface({ input: child.stderr }).on("line", (line) => {
-      const marker = parseMarkerLine(line);
-      if (marker?.level === "error") {
-        Logger.error(line);
-      } else if (marker) {
-        Logger.warn(line);
-      } else {
-        Logger.debug(line);
+  private onLine(line: ProfilerLine<MeasureLine>) {
+    switch (line.type) {
+      case "measure": {
+        const measure: Measure = {
+          cpu: line.cpu,
+          ram: line.ram,
+          fps: line.fps,
+          time: line.time,
+        };
+        this.emitMeasure(measure);
+        break;
       }
-    });
+      case "status":
+        this.onStatus(line as StatusLine);
+        break;
+    }
+  }
 
-    child.on("error", (error) => {
-      Logger.error(
-        `Failed to start ${getBinaryPath()}: ${error.message}. Build it with packages/platforms/ios/rust-profiler/build_macos.sh or set LANTERN_IOS_BINARY_PATH.`
-      );
-    });
+  private onStatus(line: StatusLine) {
+    const message = `iOS profiler: ${line.event}${line.detail ? ` (${line.detail})` : ""}`;
+    switch (line.event) {
+      case "started":
+        this.emitStarted();
+        Logger.debug(message);
+        break;
+      case "stalled":
+        Logger.warn(message);
+        break;
+      case "stopped":
+        this.end("stopped");
+        break;
+      case "ended":
+        this.end(`the profiler stream ended${line.detail ? ` (${line.detail})` : ""}`);
+        break;
+      default:
+        Logger.debug(message);
+    }
+  }
 
-    child.on("close", (code, signal) => {
-      const exit = describeExit(code, signal);
-      const reason = this.stopRequested
-        ? `stopped (${exit})`
-        : `${BINARY_NAME} exited unexpectedly (${exit})`;
-      if (!this.stopRequested) {
-        Logger.error(
-          `${reason}: no more measures will be collected. Check the ${ERROR_MARKER}* lines above.`
-        );
-      }
-      this.emitEnded(reason);
-    });
+  /** The poll is over: release the stream and settle the session. */
+  private end(reason: string) {
+    this.client.endStream();
+    if (!this.stopRequested && !this.hasEnded) {
+      Logger.error(`${reason}: no more measures will be collected`);
+    }
+    this.emitEnded(reason);
   }
 
   protected async doStop(): Promise<void> {
-    this.terminate();
+    this.stopRequested = true;
+    if (!this.hasEnded) {
+      // Answered after the `stopped` status, i.e. once the taps are torn down. A stop after
+      // the stream ended on its own is a no-op for the binary, and `ended` already fired.
+      await this.client.request("stop").catch((error: Error) => this.end(error.message));
+    }
     await this.ended;
   }
 
   protected doDispose(): void {
-    this.terminate();
-  }
-
-  private terminate() {
-    if (this.stopRequested) return;
     this.stopRequested = true;
-    if (!this.child) return;
-    terminateChild(this.child, {
-      onEscalate: () => Logger.warn(`${BINARY_NAME} did not exit after SIGINT, sending SIGKILL`),
-    });
+    if (this.hasEnded) return;
+    if (this.client.isRunning) {
+      // Not awaited: the session ends when the `stopped` status arrives; the child stays for
+      // the next session
+      this.client.request("stop").catch(() => {});
+    } else {
+      this.end("disposed before the profiler started");
+    }
   }
 }
 
@@ -273,31 +242,35 @@ export interface IOSProfilerOptions {
 export class IOSProfiler implements Profiler {
   /** The `--device` UDID the caller asked for, before resolution. */
   readonly requestedDevice: string | undefined;
-  private device: DeviceInfo | undefined;
+  private readonly client: ServeClient;
+  private device: Promise<DeviceInfo> | undefined;
   private refreshRate: number | undefined;
 
   constructor({ udid }: IOSProfilerOptions = {}) {
     this.requestedDevice = udid;
+    this.client = new ServeClient({ binaryPath: getBinaryPath, udid, binaryName: BINARY_NAME });
   }
 
   /**
-   * The device every binary call targets: the requested UDID, else the only connected device.
+   * The device every request targets: the requested UDID, else the only connected device.
    * Resolved once, on first use, so that a plain `listDevices()` never needs a device. The
    * binary applies the same rule on its own (see connect.rs), passing `--udid` just makes both
    * sides agree when several devices are connected.
    */
-  resolveDevice(): DeviceInfo {
-    this.device ??= selectDevice(this.listDevices(), {
-      requested: this.requestedDevice,
-      platformName: "iOS",
-      idLabel: "udid",
+  resolveDevice(): Promise<DeviceInfo> {
+    this.device ??= this.listDevices().then((devices) =>
+      selectDevice(devices, {
+        requested: this.requestedDevice,
+        platformName: "iOS",
+        idLabel: "udid",
+      })
+    );
+    // A failed resolution is not final: the device may get plugged in before the next call
+    this.device.catch(() => {
+      this.device = undefined;
     });
 
     return this.device;
-  }
-
-  private get udid(): string {
-    return this.resolveDevice().id;
   }
 
   startSession(bundleId: string, options: StartSessionOptions = {}): ProfilingSession {
@@ -305,11 +278,19 @@ export class IOSProfiler implements Profiler {
       Logger.warn("Screen recording is not supported on iOS, no video will be recorded");
     }
 
-    return new IOSProfilingSession(bundleId, this.udid, { ...options, recording: undefined });
+    return new IOSProfilingSession(
+      bundleId,
+      this.client,
+      async () => {
+        await this.resolveDevice();
+      },
+      { ...options, recording: undefined }
+    );
   }
 
-  detectCurrentBundleId(): string {
-    const running = runBinarySync<BinaryApp[]>(withUdid(["running-apps"], this.udid));
+  async detectCurrentBundleId(): Promise<string> {
+    await this.resolveDevice();
+    const running = await this.client.request<BinaryApp[]>("running-apps");
 
     if (running.length === 1) return running[0].bundleId;
 
@@ -327,12 +308,11 @@ export class IOSProfiler implements Profiler {
   }
 
   async listApps(): Promise<AppInfo[]> {
-    // Sequential on purpose: each subcommand opens its own instruments connection, and iOS 26
-    // closes concurrent dtservicehub connections.
-    const udid = this.udid;
-    const apps = await runBinary<BinaryApp[]>(withUdid(["apps"], udid));
-    const running = await runBinary<BinaryApp[]>(withUdid(["running-apps"], udid)).catch(
-      (error: unknown) => {
+    await this.resolveDevice();
+    const apps = await this.client.request<BinaryApp[]>("apps");
+    const running = await this.client
+      .request<BinaryApp[]>("running-apps")
+      .catch((error: unknown) => {
         Logger.warn(
           `Could not list running apps, none will be flagged as running: ${
             error instanceof Error ? error.message : error
@@ -340,8 +320,7 @@ export class IOSProfiler implements Profiler {
         );
 
         return [] as BinaryApp[];
-      }
-    );
+      });
     const runningIds = new Set(running.map((app) => app.bundleId));
 
     return apps
@@ -349,24 +328,19 @@ export class IOSProfiler implements Profiler {
       .sort((a, b) => Number(b.isRunning) - Number(a.isRunning) || a.name.localeCompare(b.name));
   }
 
-  listDevices(): DeviceInfo[] {
+  async listDevices(): Promise<DeviceInfo[]> {
     try {
-      return runBinarySync<BinaryDevice[]>(["devices"]).map((device) => ({
-        id: device.udid,
-        name: device.deviceName ?? device.productType ?? device.udid,
-        platform: "ios" as const,
-        model: device.productType ?? undefined,
-      }));
+      return toDeviceInfos(await this.client.request<BinaryDevice[]>("devices"));
     } catch (error) {
       Logger.debug(
-        `lantern-ios-profiler devices failed: ${error instanceof Error ? error.message : error}`
+        `${BINARY_NAME} devices failed: ${error instanceof Error ? error.message : error}`
       );
 
       return [];
     }
   }
 
-  installProfilerOnDevice() {
+  async installProfilerOnDevice(): Promise<void> {
     const binaryPath = getBinaryPath();
     if (!process.env.LANTERN_IOS_BINARY_PATH && !fs.existsSync(binaryPath)) {
       throw new Error(
@@ -380,17 +354,15 @@ export class IOSProfiler implements Profiler {
   }
 
   async stopApp(bundleId: string): Promise<void> {
-    await new Promise<void>((resolve) => {
-      execFile(getBinaryPath(), withUdid(["kill", "--bundle-id", bundleId], this.udid), (error) => {
-        if (error) {
-          Logger.debug(`Could not stop ${bundleId}: ${error.message}`);
-        }
-        resolve();
-      });
-    });
+    try {
+      await this.resolveDevice();
+      await this.client.request("kill", { bundleId });
+    } catch (error) {
+      Logger.debug(`Could not stop ${bundleId}: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
-  detectDeviceRefreshRate(): number {
+  async detectDeviceRefreshRate(): Promise<number> {
     if (this.refreshRate !== undefined) return this.refreshRate;
 
     // The device's `hardwareInformation` only reports CPU keys, so ProMotion is deduced from
@@ -398,10 +370,15 @@ export class IOSProfiler implements Profiler {
     const override = Number(process.env.LANTERN_IOS_REFRESH_RATE);
     if (override > 0) return (this.refreshRate = override);
 
-    const model = this.resolveDevice().model;
+    const { model } = await this.resolveDevice();
     this.refreshRate = model && isProMotionModel(model) ? 120 : 60;
     Logger.info(`Target frame rate: ${this.refreshRate} Hz${model ? ` (${model})` : ""}`);
 
     return this.refreshRate;
+  }
+
+  /** Ends the `serve` child; the next call would spawn a new one. */
+  dispose(): void {
+    this.client.dispose();
   }
 }

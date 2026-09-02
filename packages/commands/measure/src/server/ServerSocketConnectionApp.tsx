@@ -26,12 +26,12 @@ export const ServerSocketConnectionApp = ({ socket, url }: { socket: SocketType;
   useEffect(() => {
     const updateMeasures = (measures: Measure[]) =>
       setState((state) => updateMeasuresReducer(state, measures));
-    const addNewResult = (bundleId: string) =>
+    const addNewResult = (bundleId: string, refreshRate: number) =>
       setState((state) =>
         addNewResultReducer(
           state,
           `${bundleId}${state.results.length > 0 ? ` (${state.results.length + 1})` : ""}`,
-          profiler.detectDeviceRefreshRate()
+          refreshRate
         )
       );
 
@@ -45,25 +45,33 @@ export const ServerSocketConnectionApp = ({ socket, url }: { socket: SocketType;
         return;
       }
 
-      profiler.installProfilerOnDevice();
-      performanceMeasureRef.current = new PerformanceMeasurer(state.bundleId, {
+      const measurer = new PerformanceMeasurer(state.bundleId, {
         recordOptions: {
           record: false,
         },
       });
+      performanceMeasureRef.current = measurer;
 
-      addNewResult(state.bundleId);
-      const measurer = performanceMeasureRef.current;
-      measurer
-        .start(() => updateMeasures(measurer.measures || []))
+      try {
+        // Both can take seconds (binary push, iOS tunnel bring-up): awaited, not blocking, so
+        // the terminal UI and the socket stay responsive meanwhile
+        await profiler.installProfilerOnDevice();
+        const refreshRate = await profiler.detectDeviceRefreshRate();
+        // Stopped (or restarted) while we were setting up: this run is no longer wanted
+        if (performanceMeasureRef.current !== measurer) return;
+
+        addNewResult(state.bundleId, refreshRate);
+        await measurer.start(() => updateMeasures(measurer.measures || []));
         // Rejects when the profiler never reports a first measure or exits early
-        .then(() => measurer.waitUntilMeasuring())
-        .catch((error) => {
-          Logger.error(error instanceof Error ? error.message : String(error));
-          if (performanceMeasureRef.current === measurer) {
-            setState({ isMeasuring: false });
-          }
-        });
+        await measurer.waitUntilMeasuring();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        Logger.error(message);
+        socket.emit(SocketEvents.SEND_ERROR, message);
+        if (performanceMeasureRef.current === measurer) {
+          setState({ isMeasuring: false });
+        }
+      }
     });
 
     socket.on(SocketEvents.STOP, stop);

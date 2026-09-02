@@ -29,7 +29,8 @@ callers log and skip).
 | iOS      | `target`      | Attached to a process (`pid`, `name`)                                          |
 | iOS      | `targetLost`  | The process went away, waiting for a relaunch                                  |
 | iOS      | `stalled`     | No sysmontap sample for a while                                                |
-| iOS      | `stopped`     | Clean shutdown after SIGINT                                                    |
+| iOS      | `stopped`     | Clean shutdown after SIGINT, or after a `serve` `stop` request                 |
+| iOS      | `ended`       | `serve` only: the poll stream died (`detail` says why); a new poll may follow  |
 
 ### `{"type":"measure",...}` — samples
 
@@ -69,6 +70,22 @@ iOS already carries a computed `Measure` (see `@lantern/types`):
   "pid": 1234
 }
 ```
+
+### `{"type":"response",...}` — `serve` replies (iOS)
+
+`lantern-ios-profiler serve` keeps one process (and one device connection) for a whole
+session: `@lantern/ios` writes `{"id":<n>,"cmd":"<name>",...params}` request lines to its
+stdin and reads the matching reply, interleaved with the measure/status lines of a running
+`poll`:
+
+```json
+{ "type": "response", "id": 3, "result": { "polling": true } }
+{ "type": "response", "id": 4, "error": { "code": "BUSY", "message": "a poll is running: send stop first" } }
+```
+
+`isServeResponse` narrows a parsed line to a reply; `serveResponseError` turns a failed reply
+into a `ServeRequestError` (an `Error` carrying the `code`). The commands, parameters and error
+codes are documented in `packages/platforms/ios/rust-profiler/README.md`.
 
 ## stderr: markers
 

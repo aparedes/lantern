@@ -148,7 +148,7 @@ const runTest = async ({
 
   let resolvedPlatform: string;
   try {
-    const selection = selectPlatformAndDevice(platform, device);
+    const selection = await selectPlatformAndDevice(platform, device);
     resolvedPlatform = selection.platform;
     Logger.info(
       `Using ${resolvedPlatform} device ${selection.device.name} (${selection.device.id})`
@@ -202,7 +202,10 @@ const runTest = async ({
   try {
     await performanceTester.iterate();
     performanceTester.writeResults();
+    // The iOS profiler keeps a `serve` process alive; release it so the CLI can exit
+    profiler.dispose();
   } catch (error) {
+    profiler.dispose();
     // Best effort: the report is a degraded view, its failure must not hide the test failure
     try {
       performanceTester.writeResults();

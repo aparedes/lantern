@@ -19,11 +19,11 @@ program.option(
 let profiler: AndroidProfiler | undefined;
 const getProfiler = () => (profiler ??= new AndroidProfiler({ serial: program.opts().device }));
 /** The resolved serial, for the helpers called outside of a profiler. */
-const serial = () => getProfiler().resolveDevice().id;
+const serial = async () => (await getProfiler().resolveDevice()).id;
 
-const debugCppConfig = () => {
+const debugCppConfig = async () => {
   const profiler = getProfiler();
-  profiler.installProfilerOnDevice();
+  await profiler.installProfilerOnDevice();
   Logger.success(`CPU Clock tick: ${profiler.getCpuClockTick()}`);
   Logger.success(`RAM Page size: ${profiler.getRAMPageSize()}`);
 };
@@ -33,32 +33,33 @@ program.command("debugCppConfig").description("Debug CPP Config").action(debugCp
 program
   .command("getCurrentAppBundleId")
   .description("Retrieves the focused app bundle id")
-  .action(() => {
-    const { bundleId } = detectCurrentAppBundleId(serial());
+  .action(async () => {
+    const { bundleId } = detectCurrentAppBundleId(await serial());
     console.log(bundleId);
   });
 
 program
   .command("getCurrentAppPid")
   .description("Retrieves the focused app process id")
-  .action(() => {
-    const { bundleId } = detectCurrentAppBundleId(serial());
-    console.log(getPidId(bundleId, serial()));
+  .action(async () => {
+    const deviceSerial = await serial();
+    const { bundleId } = detectCurrentAppBundleId(deviceSerial);
+    console.log(getPidId(bundleId, deviceSerial));
   });
 
 program
   .command("getCurrentApp")
   .description("Prints out bundle id and currently focused app activity")
-  .action(() => {
-    const { bundleId, appActivity } = detectCurrentAppBundleId(serial());
+  .action(async () => {
+    const { bundleId, appActivity } = detectCurrentAppBundleId(await serial());
     console.log(`bundleId=${bundleId}\nappActivity=${appActivity}`);
   });
 
 program
   .command("getAbi")
   .description("Retrieves ABI architecture of the device")
-  .action(() => {
-    console.log(getAbi(serial()));
+  .action(async () => {
+    console.log(getAbi(await serial()));
   });
 
 program
@@ -71,8 +72,8 @@ program
   .option("--fps", "Display FPS")
   .option("--ram", "Display RAM Usage")
   .option("--threadNames <threadNames...>", "Display CPU Usage for a given threads (e.g. (mqt_js))")
-  .action((options) => {
-    const bundleId = options.bundleId || detectCurrentAppBundleId(serial()).bundleId;
+  .action(async (options) => {
+    const bundleId = options.bundleId || detectCurrentAppBundleId(await serial()).bundleId;
 
     getProfiler()
       .startSession(bundleId)
@@ -102,4 +103,7 @@ program
       });
   });
 
-program.parse();
+program.parseAsync().catch((error: unknown) => {
+  Logger.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

@@ -8,6 +8,7 @@
 //! the peer ("remote server connection closed"), so everything must share
 //! one DTX connection — the same model pymobiledevice3 uses.
 
+use std::future::Future;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use idevice::dvt::application_listing::ApplicationListingClient;
@@ -211,11 +212,16 @@ async fn start_taps(
     })
 }
 
+/// Streams measures for `bundle_id` until `cancel` completes (a clean stop,
+/// `Ok`) or the stream dies (`Err`, after a `STREAM_ENDED` marker). The
+/// one-shot `poll` subcommand cancels on SIGINT/SIGTERM (`shutdown_signal`);
+/// `serve` cancels on a `stop` request.
 pub async fn poll(
     conn: &mut Connection,
     bundle_id: &str,
     interval_ms: u32,
     with_fps: bool,
+    cancel: impl Future<Output = ()>,
 ) -> Result<(), IdeviceError> {
     let mut rs = conn.remote_server().await?;
 
@@ -275,14 +281,13 @@ pub async fn poll(
     let read_timeout = Duration::from_millis(u64::from(interval_ms) * 4 + 2000);
     let mut consecutive_timeouts: u32 = 0;
 
-    let shutdown = shutdown_signal();
-    tokio::pin!(shutdown);
+    tokio::pin!(cancel);
 
     let result = loop {
         // Wait for the next sysmontap push; it paces the loop at interval_ms.
         let sysmon_msg = tokio::select! {
             biased;
-            _ = &mut shutdown => break Ok(()),
+            _ = &mut cancel => break Ok(()),
             read = tokio::time::timeout(read_timeout, rs.read_message(channels.sysmontap)) => match read {
                 Ok(Ok(msg)) => {
                     consecutive_timeouts = 0;
@@ -421,7 +426,8 @@ pub async fn poll(
     result
 }
 
-async fn shutdown_signal() {
+/// Resolves on SIGINT or SIGTERM.
+pub async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
     #[cfg(unix)]
     {

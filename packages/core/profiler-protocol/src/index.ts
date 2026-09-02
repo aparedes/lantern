@@ -130,3 +130,5 @@ export {
 export type { SignalTarget } from "./registry";
 export { describeExit, KILL_AFTER_MS, terminateChild } from "./child";
 export * from "./device";
+
+export * from "./serve";

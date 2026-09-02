@@ -27,9 +27,9 @@ export const registerToolsCommand = (program: Command) => {
         "Serial (Android) or UDID (iOS) of the device to use; required when several devices of the selected platform are connected"
       )
     )
-    .action((options) => {
+    .action(async (options) => {
       try {
-        selectPlatformAndDevice(options.platform, options.device);
+        await selectPlatformAndDevice(options.platform, options.device);
       } catch (error) {
         if (error instanceof PlatformResolutionError || error instanceof DeviceSelectionError) {
           Logger.error(error.message);
@@ -38,7 +38,12 @@ export const registerToolsCommand = (program: Command) => {
         throw error;
       }
 
-      console.log(profiler.detectCurrentBundleId());
+      try {
+        console.log(await profiler.detectCurrentBundleId());
+      } finally {
+        // The iOS profiler keeps a `serve` process alive; release it so the CLI can exit
+        profiler.dispose();
+      }
     });
 
   toolsCommand

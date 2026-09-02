@@ -69,6 +69,8 @@ export const profiler: Profiler = {
   detectDeviceRefreshRate: () => get().detectDeviceRefreshRate(),
   listApps: () => get().listApps(),
   listDevices: () => get().listDevices(),
+  // Nothing to release when no platform profiler was ever created
+  dispose: () => instance?.dispose(),
 };
 
 export class PlatformResolutionError extends Error {}
@@ -79,27 +81,42 @@ export { DeviceSelectionError };
  * `--device` is reported before anything (a server, a test run) starts. Both error classes carry
  * a message meant for the user.
  */
-export const selectPlatformAndDevice = (
+export const selectPlatformAndDevice = async (
   platformFlag: string | undefined,
   device?: string
-): { platform: ProfilerPlatform; device: DeviceInfo } => {
-  const platform = resolvePlatform(platformFlag);
+): Promise<{ platform: ProfilerPlatform; device: DeviceInfo }> => {
+  const platform = await resolvePlatform(platformFlag);
   setPlatform(platform, { device });
 
-  return { platform, device: profiler.resolveDevice() };
+  return { platform, device: await profiler.resolveDevice() };
 };
+
+/** Lists one platform's devices with a throwaway profiler, released right after. */
+const probeDevices = async (platformProfiler: Profiler): Promise<DeviceInfo[]> => {
+  try {
+    return await platformProfiler.listDevices();
+  } finally {
+    // The iOS profiler keeps a `serve` process alive otherwise
+    platformProfiler.dispose();
+  }
+};
+
+export interface PlatformProbe {
+  android: () => Promise<DeviceInfo[]>;
+  ios: () => Promise<DeviceInfo[]>;
+}
 
 /**
  * `--platform` > `PLATFORM` env > probing connected devices. Exactly one platform with a device
  * wins; both or none is an error that tells the user to pass `--platform`.
  */
-export const resolvePlatform = (
+export const resolvePlatform = async (
   flag: string | undefined,
-  probe: { android: () => DeviceInfo[]; ios: () => DeviceInfo[] } = {
-    android: () => new AndroidProfiler().listDevices(),
-    ios: () => new IOSProfiler().listDevices(),
+  probe: PlatformProbe = {
+    android: () => probeDevices(new AndroidProfiler()),
+    ios: () => probeDevices(new IOSProfiler()),
   }
-): ProfilerPlatform => {
+): Promise<ProfilerPlatform> => {
   if (flag !== undefined) {
     if (!PLATFORMS.includes(flag as Platform)) {
       throw new PlatformResolutionError(
@@ -113,8 +130,8 @@ export const resolvePlatform = (
   const fromEnv = platformFromEnv();
   if (fromEnv) return fromEnv;
 
-  const android = probe.android();
-  const ios = probe.ios();
+  const android = await probe.android();
+  const ios = await probe.ios();
 
   if (android.length > 0 && ios.length === 0) return "android";
   if (ios.length > 0 && android.length === 0) return "ios";

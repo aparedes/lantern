@@ -1,148 +1,244 @@
-import { EventEmitter } from "events";
-import { PassThrough } from "stream";
-import * as childProcess from "child_process";
-import { afterAll, afterEach, describe, expect, it, jest, mock, spyOn } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, jest, mock, spyOn } from "bun:test";
 import { Logger } from "@lantern/logger";
-import { DeviceSelectionError } from "@lantern/profiler-protocol";
-import { IOSProfiler } from "../index";
+import { DeviceSelectionError, ServeRequestError } from "@lantern/profiler-protocol";
+import { IOSProfiler, toDeviceInfos } from "../index";
+import {
+  FakeServeChild,
+  currentChild,
+  flush,
+  mockServeSpawn,
+  nthRequest,
+  spawnedChildren,
+} from "./fakeServeChild";
 
-interface MockChild extends EventEmitter {
-  stdout: PassThrough;
-  stderr: PassThrough;
-  kill: jest.Mock<(signal?: NodeJS.Signals) => boolean>;
-  exitCode: number | null;
-  signalCode: NodeJS.Signals | null;
-}
+mockServeSpawn();
 
-// Minimal spawn stand-in: readline needs real streams, the profiler needs close/error events
 const UDID = "00008130-000";
 const OTHER_UDID = "00008120-111";
-/** What the binary's `devices` subcommand reports */
-let connectedDevices = [UDID];
 
-const binaryDevice = (udid: string) => ({
+const binaryDevice = (udid: string, connectionType = "Usb") => ({
   udid,
+  connectionType,
   productType: "iPhone16,1",
   productVersion: "26.0",
   deviceName: `iPhone ${udid}`,
 });
 
-spyOn(childProcess, "execFileSync").mockImplementation(((file: string, args: string[]) => {
-  expect(file.endsWith("lantern-ios-profiler")).toBe(true);
-  expect(args).toEqual(["devices"]);
-  return JSON.stringify(connectedDevices.map(binaryDevice));
-}) as unknown as typeof childProcess.execFileSync);
+const debug = spyOn(Logger, "debug").mockImplementation(() => {});
+const warn = spyOn(Logger, "warn").mockImplementation(() => {});
+const error = spyOn(Logger, "error").mockImplementation(() => {});
 
-/** Arguments of the last spawned `poll` */
-let spawnedArgs: string[] = [];
+beforeEach(() => {
+  spawnedChildren.length = 0;
+});
+afterEach(() => {
+  debug.mockClear();
+  warn.mockClear();
+  error.mockClear();
+});
+afterAll(() => mock.restore());
 
-const mockSpawn = (): MockChild => {
-  const child = new EventEmitter() as MockChild;
-  child.stdout = new PassThrough();
-  child.stderr = new PassThrough();
-  child.kill = jest.fn(() => true);
-  child.exitCode = null;
-  child.signalCode = null;
-
-  spyOn(childProcess, "spawn").mockImplementationOnce(((command: string, args: string[]) => {
-    expect(command.endsWith("lantern-ios-profiler")).toBe(true);
-    expect(args.slice(0, 3)).toEqual(["poll", "--bundle-id", "com.example"]);
-    spawnedArgs = args;
-    return child;
-  }) as unknown as typeof childProcess.spawn);
-
-  return child;
+/** Answers the child's next `devices` request with `udids`. */
+const answerDevices = async (child: FakeServeChild, udids: string[], n = 1) => {
+  const request = await nthRequest(child, n);
+  expect(request.cmd).toBe("devices");
+  child.respond(
+    request.id,
+    udids.map((udid) => binaryDevice(udid))
+  );
 };
 
-// readline dispatches "line" events asynchronously
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-describe("IOSProfiler.startSession", () => {
-  const debug = spyOn(Logger, "debug").mockImplementation(() => {});
-  const warn = spyOn(Logger, "warn").mockImplementation(() => {});
-  const error = spyOn(Logger, "error").mockImplementation(() => {});
-
-  afterEach(() => {
-    connectedDevices = [UDID];
-    debug.mockClear();
-    warn.mockClear();
-    error.mockClear();
+describe("toDeviceInfos", () => {
+  it("lists a device once, described from its USB entry", () => {
+    expect(
+      toDeviceInfos([
+        { ...binaryDevice(UDID, "Network(fe80::1)"), deviceName: null },
+        binaryDevice(UDID),
+        binaryDevice(OTHER_UDID, "Network(fe80::2)"),
+      ])
+    ).toEqual([
+      { id: UDID, name: `iPhone ${UDID}`, platform: "ios", model: "iPhone16,1" },
+      { id: OTHER_UDID, name: `iPhone ${OTHER_UDID}`, platform: "ios", model: "iPhone16,1" },
+    ]);
   });
+});
 
-  it("targets the only connected device, and the requested one when several are", () => {
-    mockSpawn();
-    new IOSProfiler().startSession("com.example").dispose();
-    expect(spawnedArgs).toEqual([
-      "poll",
-      "--bundle-id",
-      "com.example",
-      "--interval-ms",
-      "500",
-      "--udid",
-      UDID,
+describe("IOSProfiler devices", () => {
+  it("lists devices through the serve child, and never throws", async () => {
+    const profiler = new IOSProfiler();
+    const listing = profiler.listDevices();
+    const child = await currentChild();
+    expect(child.args).toEqual(["serve"]);
+    await answerDevices(child, [UDID]);
+
+    expect(await listing).toEqual([
+      { id: UDID, name: `iPhone ${UDID}`, platform: "ios", model: "iPhone16,1" },
     ]);
 
-    connectedDevices = [OTHER_UDID, UDID];
-    mockSpawn();
-    new IOSProfiler({ udid: OTHER_UDID }).startSession("com.example").dispose();
-    expect(spawnedArgs.slice(-2)).toEqual(["--udid", OTHER_UDID]);
+    const failing = profiler.listDevices();
+    const request = await nthRequest(child, 2);
+    child.fail(request.id, "NO_DEVICE", "usbmuxd: not running");
+    expect(await failing).toEqual([]);
+    expect(debug).toHaveBeenCalledWith("lantern-ios-profiler devices failed: usbmuxd: not running");
   });
 
-  it("refuses to guess between several devices, and rejects an unknown one", () => {
-    connectedDevices = [OTHER_UDID, UDID];
+  it("resolves the only connected device once, and the requested one when several are", async () => {
+    const profiler = new IOSProfiler();
+    const resolving = profiler.resolveDevice();
+    await answerDevices(await currentChild(), [UDID]);
+    expect((await resolving).id).toBe(UDID);
+    expect((await profiler.resolveDevice()).id).toBe(UDID);
+    expect(spawnedChildren[0].requests).toHaveLength(1);
 
-    expect(() => new IOSProfiler().startSession("com.example")).toThrow(
+    const picky = new IOSProfiler({ udid: OTHER_UDID });
+    const pickyResolving = picky.resolveDevice();
+    const child = spawnedChildren[1] ?? (await currentChild());
+    expect(child.args).toEqual(["serve", "--udid", OTHER_UDID]);
+    await answerDevices(child, [UDID, OTHER_UDID]);
+    expect((await pickyResolving).id).toBe(OTHER_UDID);
+  });
+
+  it("refuses to guess between several devices, rejects an unknown one, and retries later", async () => {
+    const profiler = new IOSProfiler();
+    const ambiguous = profiler.resolveDevice();
+    const child = await currentChild();
+    await answerDevices(child, [OTHER_UDID, UDID]);
+    await expect(ambiguous).rejects.toThrow(
       new DeviceSelectionError(
         `Several iOS devices are connected (${OTHER_UDID}, ${UDID}): pass --device <udid>`
       )
     );
-    expect(() => new IOSProfiler({ udid: "nope" }).resolveDevice()).toThrow(
-      `Unknown iOS device "nope" (connected: ${OTHER_UDID}, ${UDID})`
+
+    const none = profiler.resolveDevice();
+    await answerDevices(child, [], 2);
+    await expect(none).rejects.toThrow("No iOS device connected");
+
+    const later = profiler.resolveDevice();
+    await answerDevices(child, [UDID], 3);
+    expect((await later).id).toBe(UDID);
+
+    const unknown = new IOSProfiler({ udid: "nope" }).resolveDevice();
+    await answerDevices(spawnedChildren[1], [UDID]);
+    await expect(unknown).rejects.toThrow(`Unknown iOS device "nope" (connected: ${UDID})`);
+  });
+
+  it("deduces the refresh rate from the resolved device's model", async () => {
+    const profiler = new IOSProfiler();
+    const rate = profiler.detectDeviceRefreshRate();
+    await answerDevices(await currentChild(), [UDID]);
+
+    expect(await rate).toBe(120);
+  });
+
+  it("dispose() ends the serve child", async () => {
+    const profiler = new IOSProfiler();
+    profiler.listDevices();
+    const child = await currentChild();
+
+    profiler.dispose();
+    expect(child.stdin.writableEnded).toBe(true);
+    expect(child.kill).toHaveBeenCalledWith("SIGINT");
+  });
+});
+
+describe("IOSProfiler apps", () => {
+  it("lists apps with their running state over the same child", async () => {
+    const profiler = new IOSProfiler();
+    const listing = profiler.listApps();
+    const child = await currentChild();
+    await answerDevices(child, [UDID]);
+
+    const apps = await nthRequest(child, 2);
+    expect(apps.cmd).toBe("apps");
+    child.respond(apps.id, [
+      { bundleId: "com.example.b", name: "Beta", executableName: "Beta", kind: "User" },
+      { bundleId: "com.example.a", name: "Alpha", executableName: "Alpha", kind: "User" },
+    ]);
+    const running = await nthRequest(child, 3);
+    expect(running.cmd).toBe("running-apps");
+    child.respond(running.id, [
+      { bundleId: "com.example.b", name: "Beta", executableName: "Beta", kind: "User", pid: 4 },
+    ]);
+
+    expect(await listing).toEqual([
+      { bundleId: "com.example.b", name: "Beta", isRunning: true },
+      { bundleId: "com.example.a", name: "Alpha", isRunning: false },
+    ]);
+  });
+
+  it("detects the only running app, and asks to pick otherwise", async () => {
+    const profiler = new IOSProfiler();
+    const detecting = profiler.detectCurrentBundleId();
+    const child = await currentChild();
+    await answerDevices(child, [UDID]);
+    const running = await nthRequest(child, 2);
+    expect(running.cmd).toBe("running-apps");
+    child.respond(running.id, [
+      { bundleId: "com.example.a", name: "Alpha", executableName: "Alpha", kind: "User", pid: 4 },
+    ]);
+    expect(await detecting).toBe("com.example.a");
+
+    const none = profiler.detectCurrentBundleId();
+    child.respond((await nthRequest(child, 3)).id, []);
+    await expect(none).rejects.toThrow("No app is running on the iOS device");
+  });
+
+  it("stops an app with a kill request, and only logs a failure", async () => {
+    const profiler = new IOSProfiler();
+    const stopping = profiler.stopApp("com.example.a");
+    const child = await currentChild();
+    await answerDevices(child, [UDID]);
+    const kill = await nthRequest(child, 2);
+    expect(kill).toEqual({ id: 2, cmd: "kill", bundleId: "com.example.a" });
+    child.fail(kill.id, "APP_NOT_FOUND", "com.example.a is not running");
+
+    await stopping;
+    expect(debug).toHaveBeenCalledWith(
+      "Could not stop com.example.a: com.example.a is not running"
     );
-
-    connectedDevices = [];
-    expect(() => new IOSProfiler().resolveDevice()).toThrow("No iOS device connected");
-    expect(new IOSProfiler().listDevices()).toEqual([]);
+    expect(error).not.toHaveBeenCalled();
   });
+});
 
-  it("deduces the refresh rate from the resolved device's model", () => {
-    connectedDevices = [OTHER_UDID, UDID];
-    const profiler = new IOSProfiler({ udid: UDID });
-
-    expect(profiler.resolveDevice()).toEqual({
-      id: UDID,
-      name: `iPhone ${UDID}`,
-      platform: "ios",
-      model: "iPhone16,1",
+describe("IOSProfiler.startSession", () => {
+  /** A session whose poll request was accepted by the child */
+  const startPolling = async (profiler = new IOSProfiler()) => {
+    const session = profiler.startSession("com.example");
+    const child = await currentChild();
+    await answerDevices(child, [UDID]);
+    const poll = await nthRequest(child, 2);
+    expect(poll).toEqual({
+      id: 2,
+      cmd: "poll",
+      bundleId: "com.example",
+      intervalMs: 500,
+      fps: true,
     });
-    expect(profiler.detectDeviceRefreshRate()).toBe(120);
-  });
+    child.respond(poll.id, { polling: true });
+    await session.launched;
+    return { session, child };
+  };
 
-  afterAll(() => mock.restore());
-
-  it("dispatches measure and status lines and ignores the rest", async () => {
-    const child = mockSpawn();
+  it("streams measures and status lines into the session", async () => {
+    const { session, child } = await startPolling();
     const onMeasure = jest.fn();
-    const onStartMeasuring = jest.fn();
-
-    const session = new IOSProfiler().startSession("com.example");
+    const onStarted = jest.fn();
     session.on("measure", onMeasure);
-    session.on("started", onStartMeasuring);
+    session.on("started", onStarted);
 
     child.stdout.write(
       [
         '{"type":"status","event":"started","detail":"polling com.example every 500ms"}',
         '{"type":"measure","time":1700000000000,"cpu":{"perName":{"Total":25.5},"perCore":{}},"ram":123.4,"fps":59.9,"threadCount":17,"pid":1234}',
         "garbage",
-        '{"event":"target","pid":1234}',
         '{"type":"status","event":"stalled","detail":"no sysmontap sample for 12s"}',
         "",
       ].join("\n")
     );
+    await session.started;
     await flush();
 
-    expect(onStartMeasuring).toHaveBeenCalledTimes(1);
-    expect(onMeasure).toHaveBeenCalledTimes(1);
+    expect(onStarted).toHaveBeenCalledTimes(1);
     expect(onMeasure).toHaveBeenCalledWith({
       cpu: { perName: { Total: 25.5 }, perCore: {} },
       ram: 123.4,
@@ -150,87 +246,119 @@ describe("IOSProfiler.startSession", () => {
       time: 1700000000000,
     });
     expect(debug).toHaveBeenCalledWith("Unparseable profiler output: garbage");
-    expect(debug).toHaveBeenCalledWith(
-      'Unparseable profiler output: {"event":"target","pid":1234}'
-    );
     expect(warn).toHaveBeenCalledWith("iOS profiler: stalled (no sysmontap sample for 12s)");
+    session.dispose();
   });
 
-  it("logs stderr markers at the matching level", async () => {
-    const child = mockSpawn();
-    new IOSProfiler().startSession("com.example");
+  it("stop() asks the child to stop and ends once the taps are down, without an error", async () => {
+    const { session, child } = await startPolling();
+    const ended = jest.fn();
+    session.on("ended", ended);
 
-    child.stderr.write(
-      [
-        "LANTERN_PROFILER_WARN_TUNNEL_FAILED: CoreDevice tunnel unavailable, trying lockdown fallback",
-        "LANTERN_PROFILER_ERROR_STREAM_ENDED: sysmontap: Closed",
-        "idevice noise",
-        "",
-      ].join("\n")
-    );
-    await flush();
+    const stopping = session.stop();
+    const stop = await nthRequest(child, 3);
+    expect(stop).toEqual({ id: 3, cmd: "stop" });
+    child.stream({ type: "status", event: "stopped" });
+    child.respond(stop.id, { stopped: true });
+    await stopping;
 
-    expect(warn).toHaveBeenCalledWith(
-      "LANTERN_PROFILER_WARN_TUNNEL_FAILED: CoreDevice tunnel unavailable, trying lockdown fallback"
-    );
-    expect(error).toHaveBeenCalledWith("LANTERN_PROFILER_ERROR_STREAM_ENDED: sysmontap: Closed");
-    expect(debug).toHaveBeenCalledWith("idevice noise");
+    expect(ended).toHaveBeenCalledWith("stopped");
+    expect(error).not.toHaveBeenCalled();
+    // The child outlives the session
+    expect(child.stdin.writableEnded).toBe(false);
+    expect(child.kill).not.toHaveBeenCalled();
   });
 
-  it("reports an unexpected exit through ended and the logger", async () => {
-    const child = mockSpawn();
-    const onEnd = jest.fn();
-    const session = new IOSProfiler().startSession("com.example");
-    session.on("ended", onEnd);
+  it("ends with an error when the stream dies on its own", async () => {
+    const { session, child } = await startPolling();
+    const ended = jest.fn();
+    session.on("ended", ended);
 
+    child.stream({ type: "status", event: "ended", detail: "sysmontap: Closed" });
+    await session.ended;
+
+    expect(ended).toHaveBeenCalledWith("the profiler stream ended (sysmontap: Closed)");
+    await expect(session.started).rejects.toThrow("the profiler stream ended");
+    expect(error).toHaveBeenCalledWith(
+      "the profiler stream ended (sysmontap: Closed): no more measures will be collected"
+    );
+    // A later stop() is a no-op for the binary
+    await session.stop();
+    expect(child.requests).toHaveLength(2);
+  });
+
+  it("ends when the serve child dies, and the next session respawns it", async () => {
+    const profiler = new IOSProfiler();
+    const { session, child } = await startPolling(profiler);
+
+    child.exitCode = 1;
     child.emit("close", 1, null);
 
-    expect(onEnd).toHaveBeenCalledWith("lantern-ios-profiler exited unexpectedly (code 1)");
-    await expect(session.started).rejects.toThrow("exited unexpectedly (code 1)");
-    expect(error).toHaveBeenCalledTimes(1);
-    expect(error.mock.calls[0][0]).toContain("exited unexpectedly (code 1)");
+    expect(await session.ended).toBe("lantern-ios-profiler exited unexpectedly (code 1)");
+
+    const next = profiler.startSession("com.example");
+    await nthRequest(spawnedChildren[1] ?? (await currentChild()), 1);
+    expect(spawnedChildren).toHaveLength(2);
+    next.dispose();
   });
 
-  it("stop() sends SIGINT, escalates to SIGKILL when the child lingers, and is not an error", () => {
-    jest.useFakeTimers();
-    try {
-      const child = mockSpawn();
-      const onEnd = jest.fn();
-      const session = new IOSProfiler().startSession("com.example");
-      session.on("ended", onEnd);
+  it("surfaces a BUSY reply to a request made while polling", async () => {
+    const profiler = new IOSProfiler();
+    const { session, child } = await startPolling(profiler);
 
-      const stopping = session.stop();
-      expect(child.kill).toHaveBeenCalledWith("SIGINT");
-      expect(child.kill).toHaveBeenCalledTimes(1);
+    const listing = profiler.listApps();
+    const apps = await nthRequest(child, 3);
+    child.fail(apps.id, "BUSY", "a poll is running: send stop first");
 
-      jest.advanceTimersByTime(3000);
-      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
-
-      child.signalCode = "SIGKILL";
-      child.emit("close", null, "SIGKILL");
-      expect(onEnd).toHaveBeenCalledWith("stopped (signal SIGKILL)");
-      expect(stopping).resolves.toBeUndefined();
-      expect(error).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
+    const rejection = await listing.catch((e: unknown) => e);
+    expect(rejection).toBeInstanceOf(ServeRequestError);
+    expect((rejection as ServeRequestError).code).toBe("BUSY");
+    session.dispose();
   });
 
-  it("stop() does not SIGKILL a child that exited in time", () => {
-    jest.useFakeTimers();
-    try {
-      const child = mockSpawn();
-      const session = new IOSProfiler().startSession("com.example");
+  it("fails the session when the poll request is refused", async () => {
+    const session = new IOSProfiler().startSession("com.example");
+    const child = await currentChild();
+    await answerDevices(child, [UDID]);
+    const poll = await nthRequest(child, 2);
+    child.fail(poll.id, "APP_NOT_FOUND", "com.example is not installed");
 
-      session.stop();
-      child.exitCode = 0;
-      child.emit("close", 0, null);
-      jest.advanceTimersByTime(3000);
+    await expect(session.launched).rejects.toThrow("com.example is not installed");
+    expect(await session.ended).toBe("com.example is not installed");
+  });
 
-      expect(child.kill).toHaveBeenCalledTimes(1);
-      expect(child.kill).toHaveBeenCalledWith("SIGINT");
-    } finally {
-      jest.useRealTimers();
-    }
+  it("dispose() sends stop without waiting, and the session ends on the stopped status", async () => {
+    const { session, child } = await startPolling();
+
+    session.dispose();
+    const stop = await nthRequest(child, 3);
+    expect(stop.cmd).toBe("stop");
+    child.stream({ type: "status", event: "stopped" });
+    child.respond(stop.id, { stopped: true });
+
+    expect(await session.ended).toBe("stopped");
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("dispose() before the device is resolved spawns no poll", async () => {
+    const profiler = new IOSProfiler();
+    const session = profiler.startSession("com.example");
+    session.dispose();
+    const child = await currentChild();
+    await answerDevices(child, [UDID]);
+
+    expect(await session.ended).toBe("disposed before the profiler started");
+    await flush();
+    expect(child.requests.map((request) => request.cmd)).not.toContain("poll");
+  });
+
+  it("warns that recording is not supported", async () => {
+    const session = new IOSProfiler().startSession("com.example", {
+      recording: { videoPath: "/tmp/video.mp4" },
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "Screen recording is not supported on iOS, no video will be recorded"
+    );
+    session.dispose();
   });
 });

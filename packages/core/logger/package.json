@@ -3,13 +3,9 @@
   "version": "0.3.3",
   "main": "dist/index.js",
   "dependencies": {
-    "kleur": "^4.1.5",
-    "luxon": "^3.4.4"
+    "kleur": "^4.1.5"
   },
   "bin": {
     "lantern-logger": "dist/bin.js"
-  },
-  "devDependencies": {
-    "@types/luxon": "^3.7.5"
   }
 }

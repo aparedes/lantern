@@ -16,10 +16,11 @@
 @source inline("stroke-success stroke-warning stroke-error bg-light-charcoal");
 
 @theme {
-  /* Inter, then the fallback stack Tailwind v3 shipped — v4's own default stack differs. */
+  /* The fallback stack Tailwind v3 shipped — v4's own default stack differs. No web font is
+     loaded: the report is a self-contained file, so it renders with the system UI font. */
   --font-sans:
-    "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
-    "Segoe UI Symbol", "Noto Color Emoji";
+    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Noto Color Emoji";
 
   --color-midnight-blue: #06182c;
   --color-navy-blue: #0f395e;

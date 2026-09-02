@@ -1,14 +1,4 @@
 import * as React from "react";
-import Box from "@mui/material/Box";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableContainer from "@mui/material/TableContainer";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
-import TableSortLabel from "@mui/material/TableSortLabel";
-import Checkbox from "@mui/material/Checkbox";
-import { visuallyHidden } from "@mui/utils";
 import { sanitizeProcessName } from "@lantern/reporter";
 import { ArrowDownIcon } from "./icons/ArrowDownIcon";
 
@@ -46,56 +36,59 @@ export interface HeadCell {
   numeric: boolean;
 }
 
+const CELL_CLASS_NAME = "text-neutral-300 border-b border-neutral-500 px-2 py-1.5 text-sm";
+
 interface EnhancedTableProps {
   headCells: HeadCell[];
-  numSelected: number;
   onRequestSort: (event: React.MouseEvent<unknown>, property: keyof Data) => void;
-  onSelectAllClick: (event: React.ChangeEvent<HTMLInputElement>) => void;
   order: Order;
   orderBy: string;
-  rowCount: number;
 }
 
-function EnhancedTableHead(props: EnhancedTableProps) {
-  const { order, orderBy, onRequestSort } = props;
-  const createSortHandler = (property: keyof Data) => (event: React.MouseEvent<unknown>) => {
-    onRequestSort(event, property);
-  };
-
+function EnhancedTableHead({ headCells, order, orderBy, onRequestSort }: EnhancedTableProps) {
   return (
-    <TableHead>
-      <TableRow>
-        <TableCell padding="checkbox" className="text-neutral-300! bg-dark-charcoal!" />
-        {props.headCells.map((headCell) => (
-          <TableCell
-            key={headCell.id}
-            align={headCell.numeric ? "right" : "left"}
-            padding={headCell.disablePadding ? "none" : "normal"}
-            sortDirection={orderBy === headCell.id ? order : false}
-            className="text-neutral-300! bg-dark-charcoal!"
-          >
-            <TableSortLabel
-              active={orderBy === headCell.id}
-              direction={orderBy === headCell.id ? order : "asc"}
-              onClick={createSortHandler(headCell.id)}
-              className="text-neutral-300! "
-              style={{
-                color: "white",
-                fontWeight: orderBy === headCell.id ? 700 : 400,
-              }}
-              IconComponent={({ className }) => <ArrowDownIcon className={className} />}
+    <thead>
+      <tr>
+        <th className={`${CELL_CLASS_NAME} sticky top-0 bg-dark-charcoal w-12`} />
+        {headCells.map((headCell) => {
+          const active = orderBy === headCell.id;
+          const direction = active ? order : "asc";
+
+          return (
+            <th
+              key={headCell.id}
+              scope="col"
+              aria-sort={active ? (order === "desc" ? "descending" : "ascending") : undefined}
+              className={`${CELL_CLASS_NAME} sticky top-0 bg-dark-charcoal ${
+                headCell.numeric ? "text-right" : "text-left"
+              } ${headCell.disablePadding ? "px-0" : ""}`}
             >
-              {headCell.label}
-              {orderBy === headCell.id ? (
-                <Box component="span" sx={visuallyHidden}>
-                  {order === "desc" ? "sorted descending" : "sorted ascending"}
-                </Box>
-              ) : null}
-            </TableSortLabel>
-          </TableCell>
-        ))}
-      </TableRow>
-    </TableHead>
+              <button
+                type="button"
+                onClick={(event) => onRequestSort(event, headCell.id)}
+                className="group inline-flex items-center text-white"
+                style={{ fontWeight: active ? 700 : 400 }}
+              >
+                {headCell.label}
+                {/* Hidden until hovered on inactive columns, like MUI's sort label; points down
+                    for descending and is flipped for ascending */}
+                <ArrowDownIcon
+                  size={18}
+                  className={`ml-1 transition-transform ${direction === "asc" ? "rotate-180" : ""} ${
+                    active ? "opacity-100" : "opacity-0 group-hover:opacity-50"
+                  }`}
+                />
+                {active ? (
+                  <span className="sr-only">
+                    {order === "desc" ? "sorted descending" : "sorted ascending"}
+                  </span>
+                ) : null}
+              </button>
+            </th>
+          );
+        })}
+      </tr>
+    </thead>
   );
 }
 
@@ -119,100 +112,67 @@ export default function EnhancedTable({
     setOrderBy(property);
   };
 
-  const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.checked) {
-      const newSelecteds = rows.map((n) => n.name);
-      setSelected(newSelecteds);
-      return;
-    }
-    setSelected([]);
-  };
-
-  const handleClick = (event: React.MouseEvent<unknown>, name: string) => {
-    const selectedIndex = selected.indexOf(name);
-    let newSelected: string[] = [];
-
-    if (selectedIndex === -1) {
-      newSelected = newSelected.concat(selected, name);
-    } else if (selectedIndex === 0) {
-      newSelected = newSelected.concat(selected.slice(1));
-    } else if (selectedIndex === selected.length - 1) {
-      newSelected = newSelected.concat(selected.slice(0, -1));
-    } else if (selectedIndex > 0) {
-      newSelected = newSelected.concat(
-        selected.slice(0, selectedIndex),
-        selected.slice(selectedIndex + 1)
-      );
-    }
-
-    setSelected(newSelected);
+  const toggle = (name: string) => {
+    setSelected(
+      selected.includes(name) ? selected.filter((thread) => thread !== name) : [...selected, name]
+    );
   };
 
   const isSelected = (name: string) => selected.indexOf(name) !== -1;
 
   return (
-    <TableContainer sx={{ maxHeight: 400 }}>
-      <Table stickyHeader size={"small"}>
+    <div className="max-h-[400px] overflow-auto">
+      <table className="w-full border-collapse">
         <EnhancedTableHead
           headCells={headCells}
-          numSelected={selected.length}
           order={order}
           orderBy={orderBy}
-          onSelectAllClick={handleSelectAllClick}
           onRequestSort={handleRequestSort}
-          rowCount={rows.length}
         />
-        <TableBody>
+        <tbody>
           {/* `Array.prototype.sort` is stable; the copy keeps the `rows` prop untouched. */}
           {[...rows].sort(getComparator(order, orderBy)).map((row, index) => {
             const isItemSelected = isSelected(row.name);
             const labelId = `enhanced-table-checkbox-${index}`;
 
             return (
-              <TableRow
-                hover
-                onClick={(event) => handleClick(event, row.name)}
+              <tr
+                onClick={() => toggle(row.name)}
                 role="checkbox"
                 aria-checked={isItemSelected}
                 tabIndex={-1}
                 key={row.name}
-                selected={isItemSelected}
+                className={`cursor-pointer hover:bg-white/5 ${isItemSelected ? "bg-white/10" : ""}`}
               >
-                <TableCell padding="checkbox" className="text-neutral-300! border-b-neutral-500">
-                  <Checkbox
-                    color="primary"
+                <td className={`${CELL_CLASS_NAME} text-center`}>
+                  <input
+                    type="checkbox"
                     checked={isItemSelected}
-                    slotProps={{
-                      input: {
-                        "aria-labelledby": labelId,
-                      },
-                    }}
-                    className="text-neutral-300!"
+                    aria-labelledby={labelId}
+                    // The row handles the toggle: a change event still fires on the input so
+                    // keyboard users get the same behaviour, without toggling twice on click
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={() => toggle(row.name)}
+                    className="accent-theme-color"
                   />
-                </TableCell>
-                <TableCell
-                  component="th"
-                  id={labelId}
+                </td>
+                <th
                   scope="row"
-                  padding="none"
-                  className="text-neutral-300! border-b-neutral-500"
+                  id={labelId}
+                  className={`${CELL_CLASS_NAME} px-0 text-left font-normal`}
                 >
                   {sanitizeProcessName(row.name)}
-                </TableCell>
+                </th>
                 {headCells.slice(1).map((headCell) => (
-                  <TableCell
-                    align="right"
-                    key={headCell.id}
-                    className="text-neutral-300! border-b-neutral-500"
-                  >
+                  <td key={headCell.id} className={`${CELL_CLASS_NAME} text-right`}>
                     {row[headCell.id]}
-                  </TableCell>
+                  </td>
                 ))}
-              </TableRow>
+              </tr>
             );
           })}
-        </TableBody>
-      </Table>
-    </TableContainer>
+        </tbody>
+      </table>
+    </div>
   );
 }

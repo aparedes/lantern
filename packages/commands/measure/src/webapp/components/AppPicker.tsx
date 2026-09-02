@@ -36,6 +36,8 @@ const SearchIconWrapper = styled("div")(() => ({
 
 const StyledInputBase = styled(InputBase)(({ theme }) => ({
   color: "inherit",
+  // The rest of the page uses Tailwind's system font stack; MUI would default to Roboto
+  fontFamily: "inherit",
   "& .MuiInputBase-input": {
     padding: 10,
     // vertical padding + font size from searchIcon
@@ -121,6 +123,7 @@ export const AppPicker = ({
         inputValue={inputValue}
         onInputChange={(_, newValue) => handleInputChange(newValue)}
         onOpen={onOpen}
+        slotProps={{ paper: { sx: { fontFamily: "inherit" } } }}
         renderOption={(props, option) => (
           <li {...props} key={option.bundleId}>
             <span>{option.name}</span>

@@ -1,4 +1,4 @@
-import { ArrowBackIosNewOutlined, ArrowForwardIosOutlined } from "@mui/icons-material";
+import { ArrowBackIcon, ArrowForwardIcon } from "./icons/SvgIcon";
 import React, { useState } from "react";
 import { Switch } from "./Switch";
 
@@ -68,7 +68,7 @@ export const IterationSelector = ({
           onClick={goToPreviousIteration}
           className="ml-2 mr-2"
         >
-          <ArrowBackIosNewOutlined className="text-theme-color" />
+          <ArrowBackIcon className="text-theme-color" />
         </button>
       )}
       <div className="text-[#8B8B8B] font-medium">
@@ -83,7 +83,7 @@ export const IterationSelector = ({
       </div>
       {!showAverage && (
         <button onClick={goToNextIteration} aria-label="See next iteration" className="ml-2 mr-2">
-          <ArrowForwardIosOutlined className="text-theme-color" />
+          <ArrowForwardIcon className="text-theme-color" />
         </button>
       )}
     </Footer>

@@ -15,6 +15,9 @@ export default defineConfig({
       "@lantern/web-reporter-ui": fileURLToPath(
         new URL("../../core/web-reporter-ui/index.tsx", import.meta.url)
       ),
+      // Same for the reporter: its CJS `dist` `require`s es-toolkit's CJS build, which cannot be
+      // tree-shaken and costs ~50 kB; from source the ESM build shrinks to the few helpers used.
+      "@lantern/reporter": fileURLToPath(new URL("../../core/reporter/index.ts", import.meta.url)),
     },
   },
   // Relative asset URLs so the report works when opened from the filesystem.

@@ -1,5 +1,4 @@
 import kleur from "kleur";
-import { DateTime } from "luxon";
 
 const info = kleur.blue;
 const success = kleur.bold().green;
@@ -23,8 +22,17 @@ export type LogLevelValue = ValueOf<typeof LogLevel>;
 
 let logLevel: number = LogLevel.INFO;
 
+// `HH:mm:ss` in the local time zone. `Intl` does what luxon did here, and the measure web app
+// logs through this module too: luxon alone was 69 kB of its bundle.
+const timeFormat = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
 const formatLine = (message: string) => {
-  const timestamp = DateTime.now().toLocaleString(DateTime.TIME_24_WITH_SECONDS);
+  const timestamp = timeFormat.format(new Date());
   const timestampLog = timestampColor(`[${timestamp}]`);
   return `${timestampLog} ${message}`;
 };

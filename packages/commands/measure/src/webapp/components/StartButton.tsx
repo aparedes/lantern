@@ -1,5 +1,4 @@
-import { PlayArrow, Stop } from "@mui/icons-material";
-import { Button } from "@lantern/web-reporter-ui";
+import { Button, PlayArrowIcon, StopIcon } from "@lantern/web-reporter-ui";
 
 export const StartButton = ({
   isMeasuring,
@@ -11,11 +10,11 @@ export const StartButton = ({
   stop: () => void;
 }) =>
   isMeasuring ? (
-    <Button onClick={stop} icon={<Stop />}>
+    <Button onClick={stop} icon={<StopIcon />}>
       Stop Measuring
     </Button>
   ) : (
-    <Button onClick={start} icon={<PlayArrow />}>
+    <Button onClick={start} icon={<PlayArrowIcon />}>
       Start Measuring
     </Button>
   );

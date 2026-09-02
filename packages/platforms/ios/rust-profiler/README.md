@@ -93,10 +93,10 @@ One JSON object per stdout line (NDJSON):
   application-listing service) falling back to the bundle id and its last
   component, every sample — so an app relaunch (new pid) re-attaches
   automatically and emits `targetLost`/`target` transitions.
-- Errors are marked on stderr as `IOS_PROFILER_ERROR_<CODE>: message`
+- Errors are marked on stderr as `LANTERN_PROFILER_ERROR_<CODE>: message`
   (`NO_DEVICE`, `SERVICE_FAILED`, `APP_NOT_FOUND`, `STREAM_ENDED`, `USAGE`),
-  mirroring the Android profiler's `CPP_ERROR_*` convention. Non-fatal
-  notices use `IOS_PROFILER_WARN_<CODE>: message` — currently
+  the same convention as the Android profiler (parsed by `@lantern/profiler-protocol`). Non-fatal
+  notices use `LANTERN_PROFILER_WARN_<CODE>: message` — currently
   `TUNNEL_FAILED`, emitted when the CoreDevice tunnel is unavailable and the
   lockdown fallback is attempted (normal on iOS < 17).
 - When no sysmontap sample arrives for a while, a

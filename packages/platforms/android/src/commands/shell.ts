@@ -1,5 +1,6 @@
 import { Logger } from "@lantern/logger";
 import { execSync, spawn, ChildProcess, SpawnSyncReturns } from "child_process";
+import { createInterface } from "readline";
 
 export const executeCommand = (command: string): string => {
   try {
@@ -107,31 +108,19 @@ export const executeAsync = (
   return childProcess;
 };
 
-export const executeLongRunningProcess = (
-  command: Command,
-  delimiter: string,
-  onData: (data: string) => void
-) => {
+/**
+ * Spawns a process whose stdout is line oriented (NDJSON), calling `onLine` with each complete
+ * line, however the chunks were split. A trailing partial line is delivered once completed, or
+ * when stdout ends.
+ */
+export const executeLineProcess = (command: Command, onLine: (line: string) => void) => {
   const process = executeAsync(command, {
     logStderr: false,
   });
-  let currentChunk = "";
 
-  process.stdout?.on("data", (data: Buffer) => {
-    currentChunk += data.toString();
-
-    const dataSplits = currentChunk.split(delimiter);
-
-    dataSplits.slice(0, -1).forEach((split) => {
-      onData(split.trim());
-    });
-
-    if (dataSplits.length > 0) {
-      currentChunk = currentChunk.slice(
-        currentChunk.length - 1 * dataSplits[dataSplits.length - 1].length
-      );
-    }
-  });
+  if (process.stdout) {
+    createInterface({ input: process.stdout }).on("line", onLine);
+  }
 
   return process;
 };

@@ -4,6 +4,12 @@ import path from "path";
 import { createInterface } from "readline";
 import { Logger } from "@lantern/logger";
 import {
+  ERROR_MARKER,
+  lastErrorMessage,
+  parseMarkerLine,
+  parseProfilerLine,
+} from "@lantern/profiler-protocol";
+import {
   AppInfo,
   DeviceInfo,
   Measure,
@@ -50,30 +56,14 @@ interface BinaryApp {
   pid?: number;
 }
 
-const ERROR_MARKER = "IOS_PROFILER_ERROR_";
-/** Non-fatal notices (e.g. the lockdown fallback was taken); never a command's failure cause. */
-const WARN_MARKER = "IOS_PROFILER_WARN_";
-
 /**
- * `IOS_PROFILER_ERROR_<CODE>: message` → human message of the LAST such line, else undefined.
- * The last marker is the one that ended the command; earlier ones (and `IOS_PROFILER_WARN_*`
- * notices, which are ignored here) are context that must not mask it.
- */
-export const iosErrorMessage = (stderr: string): string | undefined => {
-  const errors = stderr.split("\n").filter((line) => line.startsWith(ERROR_MARKER));
-  const last = errors.at(-1);
-
-  return last?.replace(/^IOS_PROFILER_ERROR_\w+:\s*/, "");
-};
-
-/**
- * The binary reports failures as `IOS_PROFILER_ERROR_*` on stderr and exits non-zero, which
+ * The binary reports failures as `LANTERN_PROFILER_ERROR_*` on stderr and exits non-zero, which
  * `execFileSync`/`execFile` surface as an unhelpful "Command failed" — so re-throw with the
  * message the binary actually wrote whenever there is one.
  */
 const toBinaryError = (error: unknown): Error => {
   const stderr = (error as { stderr?: string | Buffer | null }).stderr;
-  const message = stderr ? iosErrorMessage(stderr.toString()) : undefined;
+  const message = stderr ? lastErrorMessage(stderr.toString()) : undefined;
 
   if (message) return new Error(message);
 
@@ -100,7 +90,7 @@ const runBinary = <T>(args: string[]): Promise<T> =>
   new Promise((resolve, reject) =>
     execFile(getBinaryPath(), args, { maxBuffer: MAX_BUFFER }, (error, stdout, stderr) => {
       if (error) {
-        reject(new Error(iosErrorMessage(stderr) ?? error.message));
+        reject(new Error(lastErrorMessage(stderr) ?? error.message));
 
         return;
       }
@@ -162,33 +152,6 @@ interface MeasureLine {
   pid: number;
 }
 
-interface StatusLine {
-  type: "status";
-  event: string;
-  pid?: number;
-  name?: string;
-  detail?: string;
-}
-
-type ProfilerLine = MeasureLine | StatusLine;
-
-/**
- * One stdout line → ProfilerLine, or undefined when it is not NDJSON with a string `type`
- * (stray output, or a JSON value that is not one of the binary's line objects).
- */
-export const parseProfilerLine = (rawLine: string): ProfilerLine | undefined => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawLine);
-  } catch {
-    return undefined;
-  }
-
-  const type = (parsed as { type?: unknown } | null)?.type;
-
-  return typeof type === "string" ? (parsed as ProfilerLine) : undefined;
-};
-
 /** Delay between the SIGINT asking the poller to tear down and the SIGKILL that forces it. */
 const STOP_KILL_TIMEOUT_MS = 3000;
 
@@ -209,7 +172,7 @@ export class IOSProfiler implements Profiler {
     let killTimer: NodeJS.Timeout | undefined;
 
     createInterface({ input: child.stdout }).on("line", (rawLine) => {
-      const line = parseProfilerLine(rawLine);
+      const line = parseProfilerLine<MeasureLine>(rawLine);
       if (!line) {
         Logger.debug(`Unparseable profiler output: ${rawLine}`);
         return;
@@ -242,9 +205,10 @@ export class IOSProfiler implements Profiler {
     });
 
     createInterface({ input: child.stderr }).on("line", (line) => {
-      if (line.startsWith(ERROR_MARKER)) {
+      const marker = parseMarkerLine(line);
+      if (marker?.level === "error") {
         Logger.error(line);
-      } else if (line.startsWith(WARN_MARKER)) {
+      } else if (marker) {
         Logger.warn(line);
       } else {
         Logger.debug(line);
@@ -267,7 +231,7 @@ export class IOSProfiler implements Profiler {
         : `${BINARY_NAME} exited unexpectedly (${exit})`;
       if (!stopRequested) {
         Logger.error(
-          `${reason}: no more measures will be collected. Check the IOS_PROFILER_ERROR_* lines above.`
+          `${reason}: no more measures will be collected. Check the ${ERROR_MARKER}* lines above.`
         );
       }
       options.onEnd?.(reason);

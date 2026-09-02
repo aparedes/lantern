@@ -1,11 +1,12 @@
 import fs from "fs";
 import os from "os";
+import { createInterface } from "readline";
 import { Logger } from "@lantern/logger";
 import {
   canIgnoreAwsTerminationError,
   cleanup,
   executeCommand,
-  executeLongRunningProcess,
+  executeLineProcess,
 } from "../shell";
 import {
   AppInfo,
@@ -18,7 +19,12 @@ import {
 } from "@lantern/types";
 import { CpuMeasureAggregator } from "../cpu/CpuMeasureAggregator";
 import { FrameTimeParser } from "../atrace/pollFpsUsage";
-import { CppPerformanceMeasure, parseCppMeasure } from "../cppProfiler";
+import {
+  AndroidRawMeasureLine,
+  isAndroidRawMeasureLine,
+  parseMarkerLine,
+  parseProfilerLine,
+} from "@lantern/profiler-protocol";
 import { processOutput } from "../cpu/getCpuStatsByProcess";
 import { processOutput as processRamOutput } from "../ram/pollRamUsage";
 
@@ -199,48 +205,78 @@ export abstract class UnixProfiler implements Profiler {
    * Starts the native profiler on the device and forwards each raw measure it prints
    * (before any CPU / RAM / FPS processing) to `onData`. `onEnd` is called once the profiler
    * process has exited, whether through `stop()` or on its own.
+   *
+   * The wire protocol (NDJSON on stdout, markers on stderr) is documented in
+   * `@lantern/profiler-protocol`.
    */
   private pollRawPerformanceMeasures(
-    pid: string,
-    onData: (measure: CppPerformanceMeasure) => void,
-    onPidChanged?: (pid: string) => void,
+    bundleId: string,
+    onData: (measure: AndroidRawMeasureLine) => void,
+    onPidChanged?: (bundleId: string) => void,
     onEnd?: (reason: string) => void
   ) {
     this.installProfilerOnDevice();
 
-    const DELIMITER = "=STOP MEASURE=";
-
-    const process = executeLongRunningProcess(
+    const process = executeLineProcess(
       this.getDeviceCommand(
-        `${this.getDeviceProfilerPath()} pollPerformanceMeasures ${pid} ${POLLING_INTERVAL}`
+        `${this.getDeviceProfilerPath()} pollPerformanceMeasures ${bundleId} ${POLLING_INTERVAL}`
       ),
-      DELIMITER,
-      (data: string) => {
-        let measure: CppPerformanceMeasure;
-        try {
-          measure = parseCppMeasure(data);
-        } catch (error) {
-          Logger.warn(
-            `Skipping unparsable measure from the profiler: ${error instanceof Error ? error.message : error}`
-          );
+      (rawLine: string) => {
+        const line = parseProfilerLine<AndroidRawMeasureLine>(rawLine);
+        if (!line) {
+          Logger.debug(`Unparseable profiler output: ${rawLine}`);
           return;
         }
-        onData(measure);
+
+        if (line.type === "measure") {
+          // The binary is trusted, but a truncated line must not crash the parsers below
+          if (isAndroidRawMeasureLine(line)) {
+            Logger.trace(rawLine);
+            onData(line);
+          } else {
+            Logger.warn(`Skipping a malformed measure from the profiler: ${rawLine}`);
+          }
+          return;
+        }
+
+        if (line.type === "status") {
+          const message = `Android profiler: ${line.event}${line.detail ? ` (${line.detail})` : ""}`;
+          switch (line.event) {
+            case "pid_changed":
+              Logger.debug(message);
+              onPidChanged?.(bundleId);
+              break;
+            case "stalled":
+              Logger.warn(message);
+              break;
+            default:
+              Logger.debug(message);
+          }
+          return;
+        }
+
+        Logger.debug(`Unknown profiler line type: ${rawLine}`);
       }
     );
 
-    process.stderr?.on("data", (data) => {
-      const log = data.toString();
+    if (process.stderr) {
+      createInterface({ input: process.stderr }).on("line", (log) => {
+        const marker = parseMarkerLine(log);
+        if (!marker) {
+          if (log && !canIgnoreAwsTerminationError(log)) Logger.error(log);
+          return;
+        }
 
-      // Ignore errors, it might be that the thread is dead and we can't read stats anymore
-      if (log.includes("CPP_ERROR_CANNOT_OPEN_FILE")) {
-        Logger.debug(log);
-      } else if (log.includes("CPP_ERROR_MAIN_PID_CLOSED")) {
-        onPidChanged?.(pid);
-      } else {
-        if (!canIgnoreAwsTerminationError(log)) Logger.error(log);
-      }
-    });
+        if (marker.level === "error") {
+          Logger.error(log);
+        } else if (marker.code === "CANNOT_OPEN_FILE") {
+          // A thread died between the directory listing and the read: expected, not an error
+          Logger.debug(log);
+        } else {
+          Logger.warn(log);
+        }
+      });
+    }
 
     let stopRequested = false;
     process.on("close", (code, signal) => {

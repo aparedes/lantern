@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`PerformanceMeasurer handles c++ errors correctly 1`] = `
+exports[`PerformanceMeasurer handles profiler status events and markers correctly 1`] = `
 [
   {
     "cpu": {

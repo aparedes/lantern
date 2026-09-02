@@ -3,59 +3,7 @@ import { PassThrough } from "stream";
 import * as childProcess from "child_process";
 import { afterAll, afterEach, describe, expect, it, jest, mock, spyOn } from "bun:test";
 import { Logger } from "@lantern/logger";
-import { IOSProfiler, iosErrorMessage, parseProfilerLine } from "../index";
-
-describe("iosErrorMessage", () => {
-  it("returns the message of the only error marker", () => {
-    expect(iosErrorMessage("IOS_PROFILER_ERROR_NO_DEVICE: no device found\n")).toBe(
-      "no device found"
-    );
-  });
-
-  it("picks the last error marker so context lines do not mask the failure", () => {
-    const stderr = [
-      "IOS_PROFILER_ERROR_SERVICE_FAILED: application listing: Closed",
-      "some idevice debug output",
-      "IOS_PROFILER_ERROR_APP_NOT_FOUND: com.example is not running",
-    ].join("\n");
-
-    expect(iosErrorMessage(stderr)).toBe("com.example is not running");
-  });
-
-  it("ignores WARN markers", () => {
-    const stderr = [
-      "IOS_PROFILER_WARN_TUNNEL_FAILED: CoreDevice tunnel unavailable, trying lockdown fallback",
-      "IOS_PROFILER_ERROR_SERVICE_FAILED: instruments: Closed",
-    ].join("\n");
-
-    expect(iosErrorMessage(stderr)).toBe("instruments: Closed");
-    expect(
-      iosErrorMessage("IOS_PROFILER_WARN_TUNNEL_FAILED: CoreDevice tunnel unavailable\n")
-    ).toBeUndefined();
-  });
-
-  it("returns undefined when there is no marker", () => {
-    expect(iosErrorMessage("")).toBeUndefined();
-    expect(iosErrorMessage("Command failed with exit code 1")).toBeUndefined();
-  });
-});
-
-describe("parseProfilerLine", () => {
-  it("parses NDJSON lines with a string type", () => {
-    expect(parseProfilerLine('{"type":"status","event":"started"}')).toEqual({
-      type: "status",
-      event: "started",
-    });
-  });
-
-  it("rejects anything that is not one of the binary's line objects", () => {
-    expect(parseProfilerLine("not json")).toBeUndefined();
-    expect(parseProfilerLine("null")).toBeUndefined();
-    expect(parseProfilerLine("42")).toBeUndefined();
-    expect(parseProfilerLine('{"event":"started"}')).toBeUndefined();
-    expect(parseProfilerLine('{"type":7}')).toBeUndefined();
-  });
-});
+import { IOSProfiler } from "../index";
 
 interface MockChild extends EventEmitter {
   stdout: PassThrough;
@@ -139,8 +87,8 @@ describe("IOSProfiler.pollPerformanceMeasures", () => {
 
     child.stderr.write(
       [
-        "IOS_PROFILER_WARN_TUNNEL_FAILED: CoreDevice tunnel unavailable, trying lockdown fallback",
-        "IOS_PROFILER_ERROR_STREAM_ENDED: sysmontap: Closed",
+        "LANTERN_PROFILER_WARN_TUNNEL_FAILED: CoreDevice tunnel unavailable, trying lockdown fallback",
+        "LANTERN_PROFILER_ERROR_STREAM_ENDED: sysmontap: Closed",
         "idevice noise",
         "",
       ].join("\n")
@@ -148,9 +96,9 @@ describe("IOSProfiler.pollPerformanceMeasures", () => {
     await flush();
 
     expect(warn).toHaveBeenCalledWith(
-      "IOS_PROFILER_WARN_TUNNEL_FAILED: CoreDevice tunnel unavailable, trying lockdown fallback"
+      "LANTERN_PROFILER_WARN_TUNNEL_FAILED: CoreDevice tunnel unavailable, trying lockdown fallback"
     );
-    expect(error).toHaveBeenCalledWith("IOS_PROFILER_ERROR_STREAM_ENDED: sysmontap: Closed");
+    expect(error).toHaveBeenCalledWith("LANTERN_PROFILER_ERROR_STREAM_ENDED: sysmontap: Closed");
     expect(debug).toHaveBeenCalledWith("idevice noise");
   });
 

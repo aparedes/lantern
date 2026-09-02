@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { PassThrough } from "stream";
 import * as childProcess from "child_process";
 import { afterAll, beforeEach, describe, expect, it, jest, mock, spyOn } from "bun:test";
 import { Logger, LogLevel } from "@lantern/logger";
@@ -7,15 +8,16 @@ import { AndroidProfiler } from "../AndroidProfiler";
 Logger.setLogLevel(LogLevel.SILENT);
 
 interface MockChild extends EventEmitter {
-  stdout: EventEmitter;
-  stderr: EventEmitter;
+  stdout: PassThrough;
+  stderr: PassThrough;
   kill: ReturnType<typeof jest.fn>;
 }
 
 const mockChild = (): MockChild => {
   const child = new EventEmitter() as MockChild;
-  child.stdout = new EventEmitter();
-  child.stderr = new EventEmitter();
+  // readline (see `executeLineProcess`) needs real readable streams
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
   child.kill = jest.fn();
   return child;
 };

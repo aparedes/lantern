@@ -1,7 +1,12 @@
 import { Command, Option } from "commander";
 import { processVideoFile } from "@lantern/shell";
 import { Logger } from "@lantern/logger";
-import { PlatformResolutionError, profiler, resolvePlatform, setPlatform } from "@lantern/profiler";
+import {
+  DeviceSelectionError,
+  PlatformResolutionError,
+  profiler,
+  selectPlatformAndDevice,
+} from "@lantern/profiler";
 import fs from "fs";
 
 export const registerToolsCommand = (program: Command) => {
@@ -16,11 +21,17 @@ export const registerToolsCommand = (program: Command) => {
         "android or ios. Defaults to the PLATFORM env var, then to whichever platform has a device connected"
       ).choices(["android", "ios"])
     )
+    .addOption(
+      new Option(
+        "--device <serial|udid>",
+        "Serial (Android) or UDID (iOS) of the device to use; required when several devices of the selected platform are connected"
+      )
+    )
     .action((options) => {
       try {
-        setPlatform(resolvePlatform(options.platform));
+        selectPlatformAndDevice(options.platform, options.device);
       } catch (error) {
-        if (error instanceof PlatformResolutionError) {
+        if (error instanceof PlatformResolutionError || error instanceof DeviceSelectionError) {
           Logger.error(error.message);
           process.exit(1);
         }

@@ -3,6 +3,7 @@ import { PassThrough } from "stream";
 import * as childProcess from "child_process";
 import { afterAll, afterEach, describe, expect, it, jest, mock, spyOn } from "bun:test";
 import { Logger } from "@lantern/logger";
+import { DeviceSelectionError } from "@lantern/profiler-protocol";
 import { IOSProfiler } from "../index";
 
 interface MockChild extends EventEmitter {
@@ -14,6 +15,27 @@ interface MockChild extends EventEmitter {
 }
 
 // Minimal spawn stand-in: readline needs real streams, the profiler needs close/error events
+const UDID = "00008130-000";
+const OTHER_UDID = "00008120-111";
+/** What the binary's `devices` subcommand reports */
+let connectedDevices = [UDID];
+
+const binaryDevice = (udid: string) => ({
+  udid,
+  productType: "iPhone16,1",
+  productVersion: "26.0",
+  deviceName: `iPhone ${udid}`,
+});
+
+spyOn(childProcess, "execFileSync").mockImplementation(((file: string, args: string[]) => {
+  expect(file.endsWith("lantern-ios-profiler")).toBe(true);
+  expect(args).toEqual(["devices"]);
+  return JSON.stringify(connectedDevices.map(binaryDevice));
+}) as unknown as typeof childProcess.execFileSync);
+
+/** Arguments of the last spawned `poll` */
+let spawnedArgs: string[] = [];
+
 const mockSpawn = (): MockChild => {
   const child = new EventEmitter() as MockChild;
   child.stdout = new PassThrough();
@@ -25,6 +47,7 @@ const mockSpawn = (): MockChild => {
   spyOn(childProcess, "spawn").mockImplementationOnce(((command: string, args: string[]) => {
     expect(command.endsWith("lantern-ios-profiler")).toBe(true);
     expect(args.slice(0, 3)).toEqual(["poll", "--bundle-id", "com.example"]);
+    spawnedArgs = args;
     return child;
   }) as unknown as typeof childProcess.spawn);
 
@@ -40,9 +63,59 @@ describe("IOSProfiler.startSession", () => {
   const error = spyOn(Logger, "error").mockImplementation(() => {});
 
   afterEach(() => {
+    connectedDevices = [UDID];
     debug.mockClear();
     warn.mockClear();
     error.mockClear();
+  });
+
+  it("targets the only connected device, and the requested one when several are", () => {
+    mockSpawn();
+    new IOSProfiler().startSession("com.example").dispose();
+    expect(spawnedArgs).toEqual([
+      "poll",
+      "--bundle-id",
+      "com.example",
+      "--interval-ms",
+      "500",
+      "--udid",
+      UDID,
+    ]);
+
+    connectedDevices = [OTHER_UDID, UDID];
+    mockSpawn();
+    new IOSProfiler({ udid: OTHER_UDID }).startSession("com.example").dispose();
+    expect(spawnedArgs.slice(-2)).toEqual(["--udid", OTHER_UDID]);
+  });
+
+  it("refuses to guess between several devices, and rejects an unknown one", () => {
+    connectedDevices = [OTHER_UDID, UDID];
+
+    expect(() => new IOSProfiler().startSession("com.example")).toThrow(
+      new DeviceSelectionError(
+        `Several iOS devices are connected (${OTHER_UDID}, ${UDID}): pass --device <udid>`
+      )
+    );
+    expect(() => new IOSProfiler({ udid: "nope" }).resolveDevice()).toThrow(
+      `Unknown iOS device "nope" (connected: ${OTHER_UDID}, ${UDID})`
+    );
+
+    connectedDevices = [];
+    expect(() => new IOSProfiler().resolveDevice()).toThrow("No iOS device connected");
+    expect(new IOSProfiler().listDevices()).toEqual([]);
+  });
+
+  it("deduces the refresh rate from the resolved device's model", () => {
+    connectedDevices = [OTHER_UDID, UDID];
+    const profiler = new IOSProfiler({ udid: UDID });
+
+    expect(profiler.resolveDevice()).toEqual({
+      id: UDID,
+      name: `iPhone ${UDID}`,
+      platform: "ios",
+      model: "iPhone16,1",
+    });
+    expect(profiler.detectDeviceRefreshRate()).toBe(120);
   });
 
   afterAll(() => mock.restore());

@@ -10,9 +10,19 @@ import { installSignalHandlers } from "@lantern/profiler-protocol";
 import { AndroidProfiler } from "./commands/platforms/AndroidProfiler";
 
 installSignalHandlers();
-const profiler = new AndroidProfiler();
+
+program.option(
+  "--device <serial>",
+  "Serial of the device to use; required when several devices are connected"
+);
+
+let profiler: AndroidProfiler | undefined;
+const getProfiler = () => (profiler ??= new AndroidProfiler({ serial: program.opts().device }));
+/** The resolved serial, for the helpers called outside of a profiler. */
+const serial = () => getProfiler().resolveDevice().id;
 
 const debugCppConfig = () => {
+  const profiler = getProfiler();
   profiler.installProfilerOnDevice();
   Logger.success(`CPU Clock tick: ${profiler.getCpuClockTick()}`);
   Logger.success(`RAM Page size: ${profiler.getRAMPageSize()}`);
@@ -24,7 +34,7 @@ program
   .command("getCurrentAppBundleId")
   .description("Retrieves the focused app bundle id")
   .action(() => {
-    const { bundleId } = detectCurrentAppBundleId();
+    const { bundleId } = detectCurrentAppBundleId(serial());
     console.log(bundleId);
   });
 
@@ -32,15 +42,15 @@ program
   .command("getCurrentAppPid")
   .description("Retrieves the focused app process id")
   .action(() => {
-    const { bundleId } = detectCurrentAppBundleId();
-    console.log(getPidId(bundleId));
+    const { bundleId } = detectCurrentAppBundleId(serial());
+    console.log(getPidId(bundleId, serial()));
   });
 
 program
   .command("getCurrentApp")
   .description("Prints out bundle id and currently focused app activity")
   .action(() => {
-    const { bundleId, appActivity } = detectCurrentAppBundleId();
+    const { bundleId, appActivity } = detectCurrentAppBundleId(serial());
     console.log(`bundleId=${bundleId}\nappActivity=${appActivity}`);
   });
 
@@ -48,7 +58,7 @@ program
   .command("getAbi")
   .description("Retrieves ABI architecture of the device")
   .action(() => {
-    console.log(getAbi());
+    console.log(getAbi(serial()));
   });
 
 program
@@ -62,32 +72,34 @@ program
   .option("--ram", "Display RAM Usage")
   .option("--threadNames <threadNames...>", "Display CPU Usage for a given threads (e.g. (mqt_js))")
   .action((options) => {
-    const bundleId = options.bundleId || detectCurrentAppBundleId().bundleId;
+    const bundleId = options.bundleId || detectCurrentAppBundleId(serial()).bundleId;
 
-    profiler.startSession(bundleId).on("measure", (measure: Measure) => {
-      const headers: string[] = [];
-      const values: (number | undefined)[] = [];
+    getProfiler()
+      .startSession(bundleId)
+      .on("measure", (measure: Measure) => {
+        const headers: string[] = [];
+        const values: (number | undefined)[] = [];
 
-      if (options.fps) {
-        headers.push("FPS");
-        values.push(measure.fps);
-      }
+        if (options.fps) {
+          headers.push("FPS");
+          values.push(measure.fps);
+        }
 
-      if (options.ram) {
-        headers.push("RAM");
-        values.push(measure.ram);
-      }
+        if (options.ram) {
+          headers.push("RAM");
+          values.push(measure.ram);
+        }
 
-      if (options.threadNames) {
-        options.threadNames.forEach((thread: string) => {
-          headers.push(`CPU ${thread}`);
-          values.push(measure.cpu.perName[thread]);
-        });
-      }
+        if (options.threadNames) {
+          options.threadNames.forEach((thread: string) => {
+            headers.push(`CPU ${thread}`);
+            values.push(measure.cpu.perName[thread]);
+          });
+        }
 
-      console.log(headers.join("|"));
-      console.log(values.join("|"));
-    });
+        console.log(headers.join("|"));
+        console.log(values.join("|"));
+      });
   });
 
 program.parse();

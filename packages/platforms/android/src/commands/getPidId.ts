@@ -1,14 +1,14 @@
 import { Logger } from "@lantern/logger";
-import { executeCommand } from "./shell";
+import { adb } from "./adb";
 
-export const getPidId = (bundleId: string) => {
+export const getPidId = (bundleId: string, serial?: string) => {
   let commandOutput;
-  const command = `adb shell pidof ${bundleId}`;
+  const command = ["shell", "pidof", bundleId];
   try {
-    commandOutput = executeCommand(command);
+    commandOutput = adb(command, { serial });
   } catch {
     throw new Error(
-      `Failed to find process for bundleId ${bundleId}.\n\n This command failed: ${command}`
+      `Failed to find process for bundleId ${bundleId}.\n\n This command failed: adb ${command.join(" ")}`
     );
   }
 

@@ -1,5 +1,5 @@
 import { Logger } from "@lantern/logger";
-import { executeAsync, executeCommand } from "./shell";
+import { adb, adbAsync } from "./adb";
 import { ChildProcess } from "child_process";
 import { waitFor } from "../utils/waitFor";
 import { isDeviceProcessRunning } from "./isDeviceProcessRunning";
@@ -13,7 +13,10 @@ export class ScreenRecorder {
   private process?: ChildProcess = undefined;
   private recordingStartTime = 0;
 
-  constructor(file: string) {
+  constructor(
+    file: string,
+    private readonly serial?: string
+  ) {
     this.fileName = file;
   }
 
@@ -26,16 +29,18 @@ export class ScreenRecorder {
   } = {}): Promise<void> {
     const filePath = `${RECORDING_FOLDER}${this.fileName}`;
 
-    const process = executeAsync([
-      "adb",
-      "shell",
-      "screenrecord",
-      filePath,
-      "--bit-rate",
-      `${bitRate}`,
-      ...(size ? ["--size", size] : []),
-      "--verbose",
-    ]);
+    const process = adbAsync(
+      [
+        "shell",
+        "screenrecord",
+        filePath,
+        "--bit-rate",
+        `${bitRate}`,
+        ...(size ? ["--size", size] : []),
+        "--verbose",
+      ],
+      { serial: this.serial }
+    );
     this.process = process;
 
     await new Promise<void>((resolve, reject) => {
@@ -87,14 +92,14 @@ export class ScreenRecorder {
     // Killing the host `adb` process does not reliably stop `screenrecord` on the device, and
     // screenrecord needs SIGINT to finalize the video file: signal the device-side process directly
     try {
-      executeCommand("adb shell pkill -INT screenrecord");
+      this.signalDeviceRecorder();
     } catch {
       Logger.warn("Could not send SIGINT to screenrecord on the device, killing adb instead");
       process.kill("SIGINT");
     }
 
     // Wait for the device-side process to stop running before pulling the file
-    await waitFor(() => !isDeviceProcessRunning("screenrecord"), {
+    await waitFor(() => !isDeviceProcessRunning("screenrecord", this.serial), {
       timeout: STOP_RECORDING_TIMEOUT,
       checkInterval: 100,
       errorMessage: "ERROR: screenrecord still running after timeout, it should have been stopped",
@@ -122,16 +127,22 @@ export class ScreenRecorder {
     if (!process) return;
     this.process = undefined;
     try {
-      executeCommand("adb shell pkill -INT screenrecord");
+      this.signalDeviceRecorder();
     } catch {
       // The device may be gone already
     }
     process.kill("SIGINT");
   }
 
+  /** screenrecord needs SIGINT to finalize the video file: signal the device-side process. */
+  private signalDeviceRecorder() {
+    adb(["shell", "pkill", "-INT", "screenrecord"], { serial: this.serial });
+  }
+
   async pullRecording(destinationPath: string): Promise<void> {
-    executeCommand(`adb pull ${RECORDING_FOLDER}${this.fileName} ${destinationPath}`);
-    executeCommand(`adb shell rm ${RECORDING_FOLDER}${this.fileName}`);
+    const devicePath = `${RECORDING_FOLDER}${this.fileName}`;
+    adb(["pull", devicePath, destinationPath], { serial: this.serial });
+    adb(["shell", "rm", devicePath], { serial: this.serial });
     Logger.info(`Recording saved to ${destinationPath}/${this.fileName}`);
   }
 }

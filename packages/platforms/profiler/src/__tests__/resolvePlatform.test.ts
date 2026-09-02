@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterAll } from "bun:test";
 import { DeviceInfo } from "@lantern/types";
-import { PlatformResolutionError, resolvePlatform } from "../index";
+import { AndroidProfiler } from "@lantern/android";
+import { IOSProfiler } from "@lantern/ios";
+import { PlatformResolutionError, createProfiler, resolvePlatform } from "../index";
 
 const originalPlatformEnv = process.env.PLATFORM;
 
@@ -64,5 +66,25 @@ describe("resolvePlatform", () => {
 
   it("asks the user to connect a device when none is found", () => {
     expect(() => resolvePlatform(undefined, probe([], []))).toThrow(/No device found/);
+  });
+});
+
+describe("createProfiler", () => {
+  it("hands the --device value to the platform's profiler", () => {
+    const android = createProfiler("android", "R58M12345Z");
+    expect(android).toBeInstanceOf(AndroidProfiler);
+    expect((android as AndroidProfiler).requestedDevice).toBe("R58M12345Z");
+
+    const ios = createProfiler("ios", "00008130-000");
+    expect(ios).toBeInstanceOf(IOSProfiler);
+    expect((ios as IOSProfiler).requestedDevice).toBe("00008130-000");
+
+    const self = createProfiler("lantern", "R58M12345Z");
+    expect(self).toBeInstanceOf(AndroidProfiler);
+    expect(self.detectCurrentBundleId()).toBe("lantern-android-profiler");
+  });
+
+  it("leaves the device to be resolved when none was asked for", () => {
+    expect((createProfiler("android") as AndroidProfiler).requestedDevice).toBeUndefined();
   });
 });

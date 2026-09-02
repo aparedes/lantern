@@ -3,6 +3,7 @@ import { PassThrough } from "stream";
 import * as childProcess from "child_process";
 import fs from "fs";
 import { expect, jest, spyOn } from "bun:test";
+import { MOCK_SERIAL } from "./mockChildProcess";
 
 interface MockChild extends EventEmitter {
   stdout: PassThrough;
@@ -29,19 +30,19 @@ spyOn(require("child_process") as typeof childProcess, "spawn").mockImplementati
   command: string,
   args: readonly string[]
 ) => {
-  if (args.includes("atrace")) {
-    expect([command, args]).toEqual(["adb", ["shell", "atrace", "-c", "view", "-t", "999"]]);
+  // Every session process targets the resolved device
+  expect([command, args.slice(0, 2)]).toEqual(["adb", ["-s", MOCK_SERIAL]]);
+  const adbArgs = args.slice(2);
+  if (adbArgs.includes("atrace")) {
+    expect(adbArgs).toEqual(["shell", "atrace", "-c", "view", "-t", "999"]);
     return aTraceMock;
   }
-  expect([command, args]).toEqual([
-    "adb",
-    [
-      "shell",
-      "/data/local/tmp/lantern-android-profiler",
-      "pollPerformanceMeasures",
-      "com.example",
-      "500",
-    ],
+  expect(adbArgs).toEqual([
+    "shell",
+    "/data/local/tmp/lantern-android-profiler",
+    "pollPerformanceMeasures",
+    "com.example",
+    "500",
   ]);
   return perfProfilerMock;
 }) as unknown as typeof childProcess.spawn);

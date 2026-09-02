@@ -1,12 +1,15 @@
-import { AndroidProfiler, LanternSelfProfiler } from "@lantern/android";
+import { AndroidProfiler } from "@lantern/android";
 import { IOSProfiler } from "@lantern/ios";
 import { DeviceInfo, Platform, Profiler } from "@lantern/types";
+import { DeviceSelectionError } from "@lantern/profiler-protocol";
 
 /** `lantern` is the self-profiler used to measure the CLI itself; not user-facing. */
 export type ProfilerPlatform = Platform | "lantern";
 export const PLATFORMS: readonly Platform[] = ["android", "ios"];
 
 let selected: ProfilerPlatform | undefined;
+/** The `--device` serial / UDID, if any. */
+let selectedDevice: string | undefined;
 let instance: Profiler | undefined;
 
 const platformFromEnv = (): ProfilerPlatform | undefined => {
@@ -15,23 +18,32 @@ const platformFromEnv = (): ProfilerPlatform | undefined => {
   return value === "ios" || value === "android" || value === "lantern" ? value : undefined;
 };
 
-const create = (platform: ProfilerPlatform): Profiler => {
+/** `device` is the `--device` value: an adb serial on Android, a UDID on iOS. */
+export const createProfiler = (platform: ProfilerPlatform, device?: string): Profiler => {
   switch (platform) {
     case "ios":
-      return new IOSProfiler();
+      return new IOSProfiler({ udid: device });
     case "lantern":
-      return new LanternSelfProfiler();
+      return new AndroidProfiler({ serial: device, selfProfiling: true });
     default:
-      return new AndroidProfiler();
+      return new AndroidProfiler({ serial: device });
   }
 };
 
-/** Fixes the platform for this process. Must run before the first profiler call. */
-export const setPlatform = (platform: ProfilerPlatform) => {
-  if (instance && selected !== platform) {
-    throw new Error(`Platform already set to ${selected}; cannot switch to ${platform}`);
+export interface PlatformOptions {
+  /** Serial (Android) or UDID (iOS) of the device to use, when several are connected. */
+  device?: string;
+}
+
+/** Fixes the platform (and device) for this process. Must run before the first profiler call. */
+export const setPlatform = (platform: ProfilerPlatform, { device }: PlatformOptions = {}) => {
+  if (instance && (selected !== platform || selectedDevice !== device)) {
+    throw new Error(
+      `Platform already set to ${selected}${selectedDevice ? ` (device ${selectedDevice})` : ""}; cannot switch to ${platform}${device ? ` (device ${device})` : ""}`
+    );
   }
   selected = platform;
+  selectedDevice = device;
 };
 
 export const getPlatform = (): Platform => {
@@ -40,7 +52,8 @@ export const getPlatform = (): Platform => {
   return platform === "ios" ? "ios" : "android";
 };
 
-const get = (): Profiler => (instance ??= create(selected ?? platformFromEnv() ?? "android"));
+const get = (): Profiler =>
+  (instance ??= createProfiler(selected ?? platformFromEnv() ?? "android", selectedDevice));
 
 /**
  * Delegates lazily so `--platform` can be parsed before any platform code runs. A plain object
@@ -48,6 +61,7 @@ const get = (): Profiler => (instance ??= create(selected ?? platformFromEnv() ?
  */
 export const profiler: Profiler = {
   startSession: (bundleId, options) => get().startSession(bundleId, options),
+  resolveDevice: () => get().resolveDevice(),
   detectCurrentBundleId: () => get().detectCurrentBundleId(),
   installProfilerOnDevice: () => get().installProfilerOnDevice(),
   supportsScreenRecording: () => get().supportsScreenRecording(),
@@ -58,6 +72,22 @@ export const profiler: Profiler = {
 };
 
 export class PlatformResolutionError extends Error {}
+export { DeviceSelectionError };
+
+/**
+ * Applies `--platform` / `--device` and checks the device up front, so that a wrong or ambiguous
+ * `--device` is reported before anything (a server, a test run) starts. Both error classes carry
+ * a message meant for the user.
+ */
+export const selectPlatformAndDevice = (
+  platformFlag: string | undefined,
+  device?: string
+): { platform: ProfilerPlatform; device: DeviceInfo } => {
+  const platform = resolvePlatform(platformFlag);
+  setPlatform(platform, { device });
+
+  return { platform, device: profiler.resolveDevice() };
+};
 
 /**
  * `--platform` > `PLATFORM` env > probing connected devices. Exactly one platform with a device

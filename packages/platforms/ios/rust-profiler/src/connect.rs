@@ -39,6 +39,94 @@ pub async fn list_devices() -> Result<Vec<UsbmuxdDevice>, IdeviceError> {
     mux.get_devices().await
 }
 
+/// Why no single device could be picked out of the usbmuxd listing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PickError {
+    /// The requested udid is not connected; carries the connected udids.
+    NotFound {
+        udid: String,
+        connected: Vec<String>,
+    },
+    /// Nothing is connected over USB.
+    NoDevice,
+    /// Several USB devices and no `--udid` to choose between them.
+    Ambiguous(Vec<String>),
+}
+
+impl std::fmt::Display for PickError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PickError::NotFound { udid, connected } if connected.is_empty() => {
+                write!(f, "device {udid} is not connected (no device connected)")
+            }
+            PickError::NotFound { udid, connected } => write!(
+                f,
+                "device {udid} is not connected (connected: {})",
+                connected.join(", ")
+            ),
+            PickError::NoDevice => write!(f, "no iOS device connected over USB"),
+            PickError::Ambiguous(udids) => write!(
+                f,
+                "several iOS devices are connected ({}): pass --udid",
+                udids.join(", ")
+            ),
+        }
+    }
+}
+
+/// The device a command works with, mirroring the TypeScript side's rule so
+/// both agree: an explicit udid must be connected; otherwise exactly one USB
+/// device must be, and picking silently among several is an error. Network
+/// entries duplicate USB ones and are only considered for an explicit udid.
+pub fn pick_device(
+    devices: &[UsbmuxdDevice],
+    udid: Option<&str>,
+) -> Result<UsbmuxdDevice, PickError> {
+    let usb: Vec<&UsbmuxdDevice> = devices
+        .iter()
+        .filter(|d| matches!(d.connection_type, MuxConnection::Usb))
+        .collect();
+
+    if let Some(udid) = udid {
+        return usb
+            .iter()
+            .copied()
+            .find(|d| d.udid == udid)
+            .or_else(|| devices.iter().find(|d| d.udid == udid))
+            .cloned()
+            .ok_or_else(|| PickError::NotFound {
+                udid: udid.to_string(),
+                connected: udids(&usb),
+            });
+    }
+
+    match usb.as_slice() {
+        [] => Err(PickError::NoDevice),
+        [device] => Ok((*device).clone()),
+        _ => Err(PickError::Ambiguous(udids(&usb))),
+    }
+}
+
+fn udids(devices: &[&UsbmuxdDevice]) -> Vec<String> {
+    let mut udids: Vec<String> = devices.iter().map(|d| d.udid.clone()).collect();
+    udids.sort();
+    udids.dedup();
+    udids
+}
+
+/// What can go wrong before a device is even reached.
+#[derive(Debug)]
+pub enum OpenError {
+    Pick(PickError),
+    Idevice(IdeviceError),
+}
+
+impl From<IdeviceError> for OpenError {
+    fn from(error: IdeviceError) -> Self {
+        OpenError::Idevice(error)
+    }
+}
+
 /// Lockdown values used to describe a device (model, OS, name). Best effort:
 /// `None` when the device is not paired or lockdown is unreachable — `devices`
 /// must still list the device.
@@ -83,18 +171,9 @@ async fn read_string(lockdown: &mut LockdownClient, key: &str) -> Option<String>
 }
 
 impl Connection {
-    pub async fn open(udid: Option<&str>) -> Result<Self, IdeviceError> {
+    pub async fn open(udid: Option<&str>) -> Result<Self, OpenError> {
         let mut mux = UsbmuxdConnection::default().await?;
-        let device = match udid {
-            Some(udid) => mux.get_device(udid).await?,
-            None => mux
-                .get_devices()
-                .await?
-                .into_iter()
-                // Prefer USB devices; network entries duplicate them.
-                .find(|d| matches!(d.connection_type, MuxConnection::Usb))
-                .ok_or(IdeviceError::DeviceNotFound)?,
-        };
+        let device = pick_device(&mux.get_devices().await?, udid).map_err(OpenError::Pick)?;
         let addr = UsbmuxdAddr::from_env_var().unwrap_or_default();
         let provider = device.to_provider(addr, "lantern-ios-profiler");
 
@@ -180,4 +259,79 @@ async fn publish_capabilities(server: &mut RemoteServer) -> Result<(), IdeviceEr
             false,
         )
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    fn usb(udid: &str, device_id: u32) -> UsbmuxdDevice {
+        UsbmuxdDevice {
+            connection_type: MuxConnection::Usb,
+            udid: udid.into(),
+            device_id,
+        }
+    }
+
+    fn network(udid: &str, device_id: u32) -> UsbmuxdDevice {
+        UsbmuxdDevice {
+            connection_type: MuxConnection::Network(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+            udid: udid.into(),
+            device_id,
+        }
+    }
+
+    #[test]
+    fn picks_the_only_usb_device_ignoring_its_network_twin() {
+        let devices = [network("A", 1), usb("A", 2)];
+        assert_eq!(pick_device(&devices, None).unwrap().device_id, 2);
+    }
+
+    #[test]
+    fn refuses_to_guess_between_several_usb_devices() {
+        let devices = [usb("B", 1), usb("A", 2), network("A", 3)];
+        assert_eq!(
+            pick_device(&devices, None).unwrap_err(),
+            PickError::Ambiguous(vec!["A".into(), "B".into()])
+        );
+    }
+
+    #[test]
+    fn reports_no_usb_device() {
+        assert_eq!(pick_device(&[], None).unwrap_err(), PickError::NoDevice);
+        assert_eq!(
+            pick_device(&[network("A", 1)], None).unwrap_err(),
+            PickError::NoDevice
+        );
+    }
+
+    #[test]
+    fn an_explicit_udid_picks_that_device_preferring_usb() {
+        let devices = [usb("B", 1), network("A", 2), usb("A", 3)];
+        assert_eq!(pick_device(&devices, Some("A")).unwrap().device_id, 3);
+        // Network-only is still reachable when asked for explicitly
+        assert_eq!(
+            pick_device(&[network("A", 2)], Some("A"))
+                .unwrap()
+                .device_id,
+            2
+        );
+    }
+
+    #[test]
+    fn an_unknown_udid_names_the_connected_devices() {
+        let error = pick_device(&[usb("B", 1)], Some("A")).unwrap_err();
+        assert_eq!(
+            error,
+            PickError::NotFound {
+                udid: "A".into(),
+                connected: vec!["B".into()]
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "device A is not connected (connected: B)"
+        );
+    }
 }

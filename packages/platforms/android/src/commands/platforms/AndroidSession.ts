@@ -1,8 +1,8 @@
-import { ChildProcess, execSync } from "child_process";
-import { dirname } from "path";
+import { ChildProcess } from "child_process";
+import { basename, dirname } from "path";
 import { createInterface } from "readline";
 import { Logger } from "@lantern/logger";
-import { Measure, StartSessionOptions, ThreadNames } from "@lantern/types";
+import { Measure, POLLING_INTERVAL, StartSessionOptions, ThreadNames } from "@lantern/types";
 import {
   AndroidRawMeasureLine,
   ProfilingSessionBase,
@@ -12,7 +12,8 @@ import {
   parseProfilerLine,
   terminateChild,
 } from "@lantern/profiler-protocol";
-import { Command, canIgnoreAwsTerminationError, executeAsync, executeCommand } from "../shell";
+import { adb, adbAsync, adbIgnoringOutput } from "../adb";
+import { canIgnoreAwsTerminationError } from "../shell";
 import { CpuMeasureAggregator } from "../cpu/CpuMeasureAggregator";
 import { FrameTimeParser } from "../atrace/pollFpsUsage";
 import { processOutput } from "../cpu/getCpuStatsByProcess";
@@ -25,19 +26,20 @@ import { ScreenRecorder } from "../ScreenRecorder";
  * FPS silently degrades. We use the longest practical duration and restart atrace when it
  * exits on its own (see `startATrace`).
  */
-const ATRACE_COMMAND = "adb shell atrace -c view -t 999";
-const ATRACE_STOP_COMMAND = "adb shell atrace --async_stop";
+const ATRACE_ARGS = ["shell", "atrace", "-c", "view", "-t", "999"];
+const ATRACE_STOP_ARGS = ["shell", "atrace", "--async_stop"];
 
-const enableFpsDebug = () => executeCommand("adb shell setprop debug.hwui.profile true");
+const enableFpsDebug = (serial?: string) =>
+  adb(["shell", "setprop", "debug.hwui.profile", "true"], { serial });
 
 /**
  * Leaves the device's tracing off. The output of `atrace --async_stop` can be big enough to
  * overflow the buffer (see https://stackoverflow.com/questions/63796633/spawnsync-bin-sh-enobufs),
  * so it is ignored; a failure (e.g. the device is gone) is not worth more than a debug line.
  */
-const stopDeviceTracing = () => {
+const stopDeviceTracing = (serial?: string) => {
   try {
-    execSync(ATRACE_STOP_COMMAND, { stdio: "ignore" });
+    adbIgnoringOutput(ATRACE_STOP_ARGS, { serial });
   } catch (error) {
     Logger.debug(
       `Could not stop atrace on the device: ${error instanceof Error ? error.message : error}`
@@ -46,8 +48,10 @@ const stopDeviceTracing = () => {
 };
 
 export interface AndroidSessionConfig {
-  /** Spawns the device profiler in polling mode. */
-  pollCommand: Command;
+  /** The device every adb call targets. */
+  serial: string;
+  /** Where the profiler binary was pushed on the device. */
+  deviceProfilerPath: string;
   /** Human name of the profiler binary, for messages. */
   profilerName: string;
   cpuClockTick: number;
@@ -80,9 +84,7 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
   protected async launch(): Promise<void> {
     const { recording } = this.options;
     if (recording) {
-      this.recorder = new ScreenRecorder(
-        recording.videoPath.split("/").pop() ?? recording.videoPath
-      );
+      this.recorder = new ScreenRecorder(basename(recording.videoPath), this.config.serial);
       await this.recorder.startRecording({ bitRate: recording.bitRate, size: recording.size });
       this.recordingStarted = true;
       this.recordingStartTime = this.recorder.getRecordingStartTime();
@@ -136,7 +138,16 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
   }
 
   private spawnProfiler() {
-    const process = executeAsync(this.config.pollCommand, { logStderr: false });
+    const process = adbAsync(
+      [
+        "shell",
+        this.config.deviceProfilerPath,
+        "pollPerformanceMeasures",
+        this.bundleId,
+        `${POLLING_INTERVAL}`,
+      ],
+      { serial: this.config.serial, logStderr: false }
+    );
     this.profilerProcess = process;
 
     let initialTime: number | null = null;
@@ -268,12 +279,12 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
   private startATrace() {
     // Done here rather than at import time so that a machine without `adb` (iOS only) can
     // still load this package.
-    enableFpsDebug();
+    enableFpsDebug(this.config.serial);
 
     Logger.debug("Stopping atrace and flushing output...");
-    stopDeviceTracing();
+    stopDeviceTracing(this.config.serial);
     Logger.debug("Starting atrace...");
-    const aTraceProcess = executeAsync(ATRACE_COMMAND);
+    const aTraceProcess = adbAsync(ATRACE_ARGS, { serial: this.config.serial });
     this.aTraceProcess = aTraceProcess;
 
     // atrace dumps its buffer on stdout when it stops, drain it so it never blocks on a full pipe
@@ -314,6 +325,6 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
     this.aTraceProcess?.kill();
     this.aTraceProcess = null;
     // The device keeps tracing after its client is gone; a stopped session must not leave it on
-    stopDeviceTracing();
+    stopDeviceTracing(this.config.serial);
   }
 }

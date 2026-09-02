@@ -29,6 +29,11 @@ lantern-ios-profiler info    [--udid <udid>]
 lantern-ios-profiler launch  --bundle-id <id> [--udid <udid>]
 lantern-ios-profiler kill    --bundle-id <id> | --pid <n> [--udid <udid>]
 lantern-ios-profiler poll    --bundle-id <id> [--interval-ms <n=500>] [--udid <udid>]
+
+Without `--udid`, exactly one USB device must be connected: with several the
+command fails with `AMBIGUOUS_DEVICE` and lists their udids (network entries
+duplicate USB ones and are ignored for that choice). `@lantern/ios` applies
+the same rule and passes `--udid` explicitly.
 ```
 
 Set `LANTERN_IOS_DEBUG=1` for verbose protocol logs on stderr (or a
@@ -94,7 +99,7 @@ One JSON object per stdout line (NDJSON):
   component, every sample — so an app relaunch (new pid) re-attaches
   automatically and emits `targetLost`/`target` transitions.
 - Errors are marked on stderr as `LANTERN_PROFILER_ERROR_<CODE>: message`
-  (`NO_DEVICE`, `SERVICE_FAILED`, `APP_NOT_FOUND`, `STREAM_ENDED`, `USAGE`),
+  (`NO_DEVICE`, `AMBIGUOUS_DEVICE`, `SERVICE_FAILED`, `APP_NOT_FOUND`, `STREAM_ENDED`, `USAGE`),
   the same convention as the Android profiler (parsed by `@lantern/profiler-protocol`). Non-fatal
   notices use `LANTERN_PROFILER_WARN_<CODE>: message` — currently
   `TUNNEL_FAILED`, emitted when the CoreDevice tunnel is unavailable and the

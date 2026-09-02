@@ -32,7 +32,13 @@ test("executeLineProcess delivers complete lines whatever the chunking", async (
   const mockProcess = mockSpawn();
 
   executeLineProcess(
-    "adb shell /data/local/tmp/lantern-android-profiler pollPerformanceMeasures PID_ID",
+    [
+      "adb",
+      "shell",
+      "/data/local/tmp/lantern-android-profiler",
+      "pollPerformanceMeasures",
+      "PID_ID",
+    ],
     onLine
   );
 
@@ -62,7 +68,13 @@ test("executeLineProcess skips nothing, even empty lines", async () => {
   const mockProcess = mockSpawn();
 
   executeLineProcess(
-    "adb shell /data/local/tmp/lantern-android-profiler pollPerformanceMeasures PID_ID",
+    [
+      "adb",
+      "shell",
+      "/data/local/tmp/lantern-android-profiler",
+      "pollPerformanceMeasures",
+      "PID_ID",
+    ],
     onLine
   );
 

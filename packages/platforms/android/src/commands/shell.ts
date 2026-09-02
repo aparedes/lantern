@@ -1,21 +1,6 @@
 import { Logger } from "@lantern/logger";
-import { execSync, spawn, ChildProcess, SpawnSyncReturns } from "child_process";
+import { spawn, ChildProcess } from "child_process";
 import { createInterface } from "readline";
-
-export const executeCommand = (command: string): string => {
-  try {
-    return execSync(command, { stdio: "pipe" }).toString();
-  } catch (error: unknown) {
-    // The Error object will contain the entire result from child_process.spawnSync()
-    // (source: https://nodejs.org/api/child_process.html#child_processexecsynccommand-options)
-    // stderr can be missing (e.g. when the command could not be spawned at all)
-    const stderr = (error as Partial<SpawnSyncReturns<Buffer>>).stderr;
-    Logger.debug(
-      `Error while executing command "${command}": ${stderr ? stderr.toString() : String(error)}`
-    );
-    throw error;
-  }
-};
 
 /**
  * In AWS when we properly kill the process termination gets logged in stderr with a weird log
@@ -24,25 +9,17 @@ export const canIgnoreAwsTerminationError = (log: string) =>
   log.includes("Terminated              LD_LIBRARY_PATH");
 
 /**
- * A command is either a single string split on spaces, or an already split argv array.
- * Use the array form when arguments (e.g. file paths) may contain spaces.
+ * Spawns `argv[0]` with the remaining arguments (never through a shell), logging its stderr and
+ * an unexpected exit code. The caller owns the returned process.
  */
-export type Command = string | string[];
-
-const toArgv = (command: Command): string[] =>
-  Array.isArray(command) ? command : command.split(" ");
-
-const toCommandLabel = (command: Command): string =>
-  Array.isArray(command) ? command.join(" ") : command;
-
 export const executeAsync = (
-  command: Command,
+  argv: string[],
   { logStderr } = {
     logStderr: true,
   }
 ): ChildProcess => {
-  const [executable, ...args] = toArgv(command);
-  const commandLabel = toCommandLabel(command);
+  const [executable, ...args] = argv;
+  const commandLabel = argv.join(" ");
 
   const childProcess = spawn(executable, args);
 
@@ -85,8 +62,8 @@ export const executeAsync = (
  * line, however the chunks were split. A trailing partial line is delivered once completed, or
  * when stdout ends.
  */
-export const executeLineProcess = (command: Command, onLine: (line: string) => void) => {
-  const process = executeAsync(command, {
+export const executeLineProcess = (argv: string[], onLine: (line: string) => void) => {
+  const process = executeAsync(argv, {
     logStderr: false,
   });
 

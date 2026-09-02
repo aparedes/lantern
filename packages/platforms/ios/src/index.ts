@@ -11,6 +11,7 @@ import {
   lastErrorMessage,
   parseMarkerLine,
   parseProfilerLine,
+  selectDevice,
 } from "@lantern/profiler-protocol";
 import {
   AppInfo,
@@ -155,24 +156,32 @@ interface MeasureLine {
   pid: number;
 }
 
+/** `--udid <udid>` appended to a subcommand's arguments, when a device was picked. */
+const withUdid = (args: string[], udid: string | undefined): string[] =>
+  udid ? [...args, "--udid", udid] : args;
+
 /** Owns the `poll` child of one iOS profiling run. */
 class IOSProfilingSession extends ProfilingSessionBase {
   private child: ChildProcess | undefined;
   private stopRequested = false;
 
-  constructor(bundleId: string, options: StartSessionOptions = {}) {
+  constructor(
+    bundleId: string,
+    private readonly udid: string,
+    options: StartSessionOptions = {}
+  ) {
     super(bundleId, options);
     this.start();
   }
 
   protected async launch(): Promise<void> {
-    const child = spawn(getBinaryPath(), [
-      "poll",
-      "--bundle-id",
-      this.bundleId,
-      "--interval-ms",
-      `${POLLING_INTERVAL}`,
-    ]);
+    const child = spawn(
+      getBinaryPath(),
+      withUdid(
+        ["poll", "--bundle-id", this.bundleId, "--interval-ms", `${POLLING_INTERVAL}`],
+        this.udid
+      )
+    );
     this.child = child;
 
     createInterface({ input: child.stdout }).on("line", (rawLine) => {
@@ -256,19 +265,51 @@ class IOSProfilingSession extends ProfilingSessionBase {
   }
 }
 
+export interface IOSProfilerOptions {
+  /** The device's UDID; when omitted, the only connected device is used. */
+  udid?: string;
+}
+
 export class IOSProfiler implements Profiler {
+  /** The `--device` UDID the caller asked for, before resolution. */
+  readonly requestedDevice: string | undefined;
+  private device: DeviceInfo | undefined;
   private refreshRate: number | undefined;
+
+  constructor({ udid }: IOSProfilerOptions = {}) {
+    this.requestedDevice = udid;
+  }
+
+  /**
+   * The device every binary call targets: the requested UDID, else the only connected device.
+   * Resolved once, on first use, so that a plain `listDevices()` never needs a device. The
+   * binary applies the same rule on its own (see connect.rs), passing `--udid` just makes both
+   * sides agree when several devices are connected.
+   */
+  resolveDevice(): DeviceInfo {
+    this.device ??= selectDevice(this.listDevices(), {
+      requested: this.requestedDevice,
+      platformName: "iOS",
+      idLabel: "udid",
+    });
+
+    return this.device;
+  }
+
+  private get udid(): string {
+    return this.resolveDevice().id;
+  }
 
   startSession(bundleId: string, options: StartSessionOptions = {}): ProfilingSession {
     if (options.recording) {
       Logger.warn("Screen recording is not supported on iOS, no video will be recorded");
     }
 
-    return new IOSProfilingSession(bundleId, { ...options, recording: undefined });
+    return new IOSProfilingSession(bundleId, this.udid, { ...options, recording: undefined });
   }
 
   detectCurrentBundleId(): string {
-    const running = runBinarySync<BinaryApp[]>(["running-apps"]);
+    const running = runBinarySync<BinaryApp[]>(withUdid(["running-apps"], this.udid));
 
     if (running.length === 1) return running[0].bundleId;
 
@@ -288,16 +329,19 @@ export class IOSProfiler implements Profiler {
   async listApps(): Promise<AppInfo[]> {
     // Sequential on purpose: each subcommand opens its own instruments connection, and iOS 26
     // closes concurrent dtservicehub connections.
-    const apps = await runBinary<BinaryApp[]>(["apps"]);
-    const running = await runBinary<BinaryApp[]>(["running-apps"]).catch((error: unknown) => {
-      Logger.warn(
-        `Could not list running apps, none will be flagged as running: ${
-          error instanceof Error ? error.message : error
-        }`
-      );
+    const udid = this.udid;
+    const apps = await runBinary<BinaryApp[]>(withUdid(["apps"], udid));
+    const running = await runBinary<BinaryApp[]>(withUdid(["running-apps"], udid)).catch(
+      (error: unknown) => {
+        Logger.warn(
+          `Could not list running apps, none will be flagged as running: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
 
-      return [] as BinaryApp[];
-    });
+        return [] as BinaryApp[];
+      }
+    );
     const runningIds = new Set(running.map((app) => app.bundleId));
 
     return apps
@@ -337,7 +381,7 @@ export class IOSProfiler implements Profiler {
 
   async stopApp(bundleId: string): Promise<void> {
     await new Promise<void>((resolve) => {
-      execFile(getBinaryPath(), ["kill", "--bundle-id", bundleId], (error) => {
+      execFile(getBinaryPath(), withUdid(["kill", "--bundle-id", bundleId], this.udid), (error) => {
         if (error) {
           Logger.debug(`Could not stop ${bundleId}: ${error.message}`);
         }
@@ -354,7 +398,7 @@ export class IOSProfiler implements Profiler {
     const override = Number(process.env.LANTERN_IOS_REFRESH_RATE);
     if (override > 0) return (this.refreshRate = override);
 
-    const model = this.listDevices()[0]?.model;
+    const model = this.resolveDevice().model;
     this.refreshRate = model && isProMotionModel(model) ? 120 : 60;
     Logger.info(`Target frame rate: ${this.refreshRate} Hz${model ? ` (${model})` : ""}`);
 

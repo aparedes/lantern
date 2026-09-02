@@ -1,9 +1,9 @@
-import { executeCommand } from "./shell";
+import { adb } from "./adb";
 
-export const detectCurrentAppBundleId = () => {
-  const command = "adb shell dumpsys window windows";
+export const detectCurrentAppBundleId = (serial?: string) => {
+  const command = ["shell", "dumpsys", "window", "windows"];
 
-  const commandOutput = executeCommand(command)
+  const commandOutput = adb(command, { serial })
     .split(/\r\n|\n|\r/)
     .filter(
       (line) =>
@@ -22,7 +22,7 @@ export const detectCurrentAppBundleId = () => {
     throw new Error(
       `Could not detect currently opened app, ${
         commandOutput
-          ? `output of ${command} was ${commandOutput}`
+          ? `output of adb ${command.join(" ")} was ${commandOutput}`
           : "do you have an Android device connected and unlocked?"
       }`
     );

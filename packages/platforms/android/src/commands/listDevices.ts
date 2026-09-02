@@ -1,6 +1,6 @@
 import { DeviceInfo } from "@lantern/types";
 import { Logger } from "@lantern/logger";
-import { executeCommand } from "./shell";
+import { adb } from "./adb";
 
 /** Parses `adb devices -l`: skips the header, keeps `<serial> device …` rows. */
 export const parseAdbDevices = (output: string): DeviceInfo[] =>
@@ -20,9 +20,10 @@ export const parseAdbDevices = (output: string): DeviceInfo[] =>
       };
     });
 
+/** Every device adb can see; `[]` when adb is missing or fails. Never throws. */
 export const listAndroidDevices = (): DeviceInfo[] => {
   try {
-    return parseAdbDevices(executeCommand("adb devices -l"));
+    return parseAdbDevices(adb(["devices", "-l"]));
   } catch (error) {
     Logger.debug(`adb devices failed: ${error instanceof Error ? error.message : error}`);
 

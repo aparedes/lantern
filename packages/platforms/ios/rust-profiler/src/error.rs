@@ -3,6 +3,8 @@ use std::fmt::Display;
 // Shared with the Android profiler (see @lantern/profiler-protocol): machine-matchable
 // markers on stderr that the TypeScript side surfaces to the user.
 pub const NO_DEVICE: &str = "NO_DEVICE";
+/// Several USB devices and no `--udid`: the message lists the udids.
+pub const AMBIGUOUS_DEVICE: &str = "AMBIGUOUS_DEVICE";
 pub const TUNNEL_FAILED: &str = "TUNNEL_FAILED";
 pub const SERVICE_FAILED: &str = "SERVICE_FAILED";
 pub const APP_NOT_FOUND: &str = "APP_NOT_FOUND";

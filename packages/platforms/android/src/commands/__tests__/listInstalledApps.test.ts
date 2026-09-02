@@ -1,8 +1,8 @@
 import { describe, it, expect, afterAll, spyOn, mock } from "bun:test";
 import { listInstalledApps, parsePackageList } from "../listInstalledApps";
-import * as shell from "../shell";
+import * as adbModule from "../adb";
 
-const executeCommandSpy = spyOn(shell, "executeCommand");
+const adbSpy = spyOn(adbModule, "adb");
 
 describe("parsePackageList", () => {
   it("returns an empty list for a blank output", () => {
@@ -19,8 +19,8 @@ describe("parsePackageList", () => {
 
 describe("listInstalledApps", () => {
   it("only lists third party packages", async () => {
-    executeCommandSpy.mockImplementation((command) => {
-      expect(command).toEqual("adb shell pm list packages -3");
+    adbSpy.mockImplementation((args) => {
+      expect(args).toEqual(["shell", "pm", "list", "packages", "-3"]);
 
       return "package:com.example.app\n";
     });

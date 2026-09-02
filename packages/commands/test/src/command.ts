@@ -10,7 +10,12 @@ import {
 } from "./commands/optionParsers";
 import { PerformanceTester } from "./PerformanceTester";
 import { Logger } from "@lantern/logger";
-import { PlatformResolutionError, profiler, resolvePlatform, setPlatform } from "@lantern/profiler";
+import {
+  DeviceSelectionError,
+  PlatformResolutionError,
+  profiler,
+  selectPlatformAndDevice,
+} from "@lantern/profiler";
 
 export const registerTestCommand = (program: Command) => {
   program
@@ -90,6 +95,12 @@ lantern test --bundleId com.example.app --testCommand "maestro test flow.yml"
         "android or ios. Defaults to the PLATFORM env var, then to whichever platform has a device connected"
       ).choices(["android", "ios"])
     )
+    .addOption(
+      new Option(
+        "--device <serial|udid>",
+        "Serial (Android) or UDID (iOS) of the device to use; required when several devices of the selected platform are connected"
+      )
+    )
     .addOption(logLevelOption)
     .action(async (options) => {
       await runTest(options);
@@ -113,6 +124,7 @@ const runTest = async ({
   recordBitRate,
   skipRestart,
   platform,
+  device,
 }: {
   duration?: number;
   iterationCount?: number;
@@ -130,20 +142,24 @@ const runTest = async ({
   recordBitRate?: number;
   skipRestart?: boolean;
   platform?: string;
+  device?: string;
 }) => {
-  let resolvedPlatform: ReturnType<typeof resolvePlatform>;
+  applyLogLevelOption(logLevel);
+
+  let resolvedPlatform: string;
   try {
-    resolvedPlatform = resolvePlatform(platform);
-    setPlatform(resolvedPlatform);
+    const selection = selectPlatformAndDevice(platform, device);
+    resolvedPlatform = selection.platform;
+    Logger.info(
+      `Using ${resolvedPlatform} device ${selection.device.name} (${selection.device.id})`
+    );
   } catch (error) {
-    if (error instanceof PlatformResolutionError) {
+    if (error instanceof PlatformResolutionError || error instanceof DeviceSelectionError) {
       Logger.error(error.message);
       process.exit(1);
     }
     throw error;
   }
-
-  applyLogLevelOption(logLevel);
 
   if (record && !profiler.supportsScreenRecording()) {
     Logger.warn(

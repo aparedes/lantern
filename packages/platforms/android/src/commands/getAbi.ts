@@ -1,4 +1,4 @@
-import { executeCommand } from "./shell";
+import { adb } from "./adb";
 
-export const getAbi = () =>
-  executeCommand("adb shell getprop ro.product.cpu.abi").split(/\r\n|\n|\r/)[0];
+export const getAbi = (serial?: string) =>
+  adb(["shell", "getprop", "ro.product.cpu.abi"], { serial }).split(/\r\n|\n|\r/)[0];

@@ -158,6 +158,11 @@ export interface StartSessionOptions {
 
 export interface Profiler {
   startSession: (bundleId: string, options?: StartSessionOptions) => ProfilingSession;
+  /**
+   * The device this profiler works with: the one asked for (`--device`), else the only
+   * connected one. Throws a `DeviceSelectionError` naming the connected devices otherwise.
+   */
+  resolveDevice: () => DeviceInfo;
   detectCurrentBundleId: () => string;
   installProfilerOnDevice: () => void;
   /** Whether `StartSessionOptions.recording` is honoured on this platform. */

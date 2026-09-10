@@ -148,6 +148,100 @@ describe("ServeClient", () => {
     }
   });
 
+  it("sends a request queued behind a timed-out one to the fresh child", async () => {
+    jest.useFakeTimers();
+    const client = newClient();
+    const wedged = client.request("apps");
+    const queued = client.request("running-apps");
+    const wedgedRejection = jest.fn();
+    const queuedRejection = jest.fn();
+    wedged.catch(wedgedRejection);
+    queued.catch(queuedRejection);
+
+    jest.advanceTimersByTime(FIRST_REQUEST_TIMEOUT_MS);
+    jest.useRealTimers();
+    await flush();
+
+    // The queued request is not collateral damage of the timeout: it is sent to a new child
+    expect(queuedRejection).not.toHaveBeenCalled();
+    expect(spawnedChildren).toHaveLength(2);
+    expect((await nthRequest(spawnedChildren[1], 1)).cmd).toBe("running-apps");
+    await expect(wedged).rejects.toThrow(
+      `serve did not answer apps within ${FIRST_REQUEST_TIMEOUT_MS}ms`
+    );
+  });
+
+  it("does not let a `devices` answer shorten the timeout of the request that opens the tunnel", async () => {
+    const client = newClient();
+    const listing = client.request("devices");
+    const child = await currentChild();
+    child.respond((await nthRequest(child, 1)).id, []);
+    await listing;
+
+    jest.useFakeTimers();
+    try {
+      client.request("apps").catch(() => {});
+      // `devices` only lists over usbmuxd, so the tunnel bring-up still gets the long budget
+      jest.advanceTimersByTime(REQUEST_TIMEOUT_MS);
+      expect(child.kill).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(FIRST_REQUEST_TIMEOUT_MS - REQUEST_TIMEOUT_MS);
+      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("shortens the timeout once a request that opens the device connection was answered", async () => {
+    const client = newClient();
+    const opening = client.request("apps");
+    const child = await currentChild();
+    child.respond((await nthRequest(child, 1)).id, []);
+    await opening;
+
+    jest.useFakeTimers();
+    try {
+      client.request("running-apps").catch(() => {});
+      jest.advanceTimersByTime(REQUEST_TIMEOUT_MS);
+      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("pinUdid() retires an idle child so the next one targets the resolved device", async () => {
+    const client = newClient();
+    const listing = client.request("devices");
+    const child = await currentChild();
+    expect(child.args).toEqual(["serve"]);
+    child.respond((await nthRequest(child, 1)).id, []);
+    await listing;
+
+    client.pinUdid("00008130-000");
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    child.exitCode = 0;
+    child.emit("close", 0, null);
+    // Dropped on purpose: the exit must not be reported as a crash
+    expect(error).not.toHaveBeenCalled();
+
+    client.request("apps").catch(() => {});
+    expect(spawnedChildren[1].args).toEqual(["serve", "--udid", "00008130-000"]);
+  });
+
+  it("pinUdid() leaves a busy child alone, and the pin applies to its replacement", async () => {
+    const client = newClient();
+    client.request("poll").catch(() => {});
+    const child = await currentChild();
+    await nthRequest(child, 1);
+
+    client.pinUdid("00008130-000");
+    expect(child.kill).not.toHaveBeenCalled();
+
+    child.exitCode = 1;
+    child.emit("close", 1, null);
+    client.request("apps").catch(() => {});
+    expect(spawnedChildren[1].args).toEqual(["serve", "--udid", "00008130-000"]);
+  });
+
   it("times out with a message naming the request", async () => {
     jest.useFakeTimers();
     try {

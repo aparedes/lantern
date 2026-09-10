@@ -75,32 +75,37 @@ program
   .action(async (options) => {
     const bundleId = options.bundleId || detectCurrentAppBundleId(await serial()).bundleId;
 
-    getProfiler()
-      .startSession(bundleId)
-      .on("measure", (measure: Measure) => {
-        const headers: string[] = [];
-        const values: (number | undefined)[] = [];
+    const session = getProfiler().startSession(bundleId);
+    session.on("measure", (measure: Measure) => {
+      const headers: string[] = [];
+      const values: (number | undefined)[] = [];
 
-        if (options.fps) {
-          headers.push("FPS");
-          values.push(measure.fps);
-        }
+      if (options.fps) {
+        headers.push("FPS");
+        values.push(measure.fps);
+      }
 
-        if (options.ram) {
-          headers.push("RAM");
-          values.push(measure.ram);
-        }
+      if (options.ram) {
+        headers.push("RAM");
+        values.push(measure.ram);
+      }
 
-        if (options.threadNames) {
-          options.threadNames.forEach((thread: string) => {
-            headers.push(`CPU ${thread}`);
-            values.push(measure.cpu.perName[thread]);
-          });
-        }
+      if (options.threadNames) {
+        options.threadNames.forEach((thread: string) => {
+          headers.push(`CPU ${thread}`);
+          values.push(measure.cpu.perName[thread]);
+        });
+      }
 
-        console.log(headers.join("|"));
-        console.log(values.join("|"));
-      });
+      console.log(headers.join("|"));
+      console.log(values.join("|"));
+    });
+
+    // Device resolution, the ABI check, installing the binary and spawning all happen inside the
+    // session: without this the action returns before any of them ran, and their failures — which
+    // the session only ever surfaces as a rejected lifecycle promise — would leave the command
+    // exiting successfully with no measure at all.
+    await session.launched;
   });
 
 program.parseAsync().catch((error: unknown) => {

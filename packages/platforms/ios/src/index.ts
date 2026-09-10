@@ -258,13 +258,16 @@ export class IOSProfiler implements Profiler {
    * sides agree when several devices are connected.
    */
   resolveDevice(): Promise<DeviceInfo> {
-    this.device ??= this.listDevices().then((devices) =>
-      selectDevice(devices, {
+    this.device ??= this.listDevices().then((devices) => {
+      const device = selectDevice(devices, {
         requested: this.requestedDevice,
         platformName: "iOS",
         idLabel: "udid",
-      })
-    );
+      });
+      // From here on both sides target the same device, even if the set of connected ones changes
+      this.client.pinUdid(device.id);
+      return device;
+    });
     // A failed resolution is not final: the device may get plugged in before the next call
     this.device.catch(() => {
       this.device = undefined;

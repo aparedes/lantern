@@ -21,6 +21,14 @@ import {
 export const FIRST_REQUEST_TIMEOUT_MS = 60_000;
 export const REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * The commands the binary answers without opening the device connection: `devices` only lists
+ * over usbmuxd and `ping`/`stop` never touch the device (see `serve.rs`). Their response says
+ * nothing about the tunnel, so they must not spend the long first-request budget — the tunnel
+ * bring-up would then be left with the short one.
+ */
+const CONNECTIONLESS_COMMANDS = new Set(["devices", "ping", "stop"]);
+
 export interface ServeClientOptions {
   /** Read at spawn time, so `LANTERN_IOS_BINARY_PATH` set later is honoured. */
   binaryPath: () => string;
@@ -38,6 +46,8 @@ export interface StreamListener {
 
 interface Pending {
   id: number;
+  /** Whether answering it proves the device connection is up (see `CONNECTIONLESS_COMMANDS`). */
+  warms: boolean;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
@@ -59,8 +69,34 @@ export class ServeClient {
   /** Set once a request completed on the current child: the tunnel is up, later ones are quick. */
   private warmedUp = false;
   private disposing = false;
+  /** The `--udid` the next child is spawned with; pinned by `pinUdid` once resolution ran. */
+  private udid: string | undefined;
+  /** Children dropped on purpose: their exit is expected, not a crash to report. */
+  private readonly retired = new WeakSet<ChildProcess>();
 
-  constructor(private readonly options: ServeClientOptions) {}
+  constructor(private readonly options: ServeClientOptions) {
+    this.udid = options.udid;
+  }
+
+  /**
+   * Targets `udid` from the next child on. Without `--device` the binary picks the only
+   * connected device on each (re)connect, which stops matching the device the profiler resolved
+   * once that one is unplugged and another is connected mid-session. An idle child is dropped so
+   * the pin takes effect right away; a busy one keeps serving and the next spawn picks it up.
+   */
+  pinUdid(udid: string) {
+    if (this.udid === udid) return;
+    this.udid = udid;
+    // `--udid` is a spawn argument, so the pin only takes effect on the next child. The one
+    // running here has answered nothing but `devices` (resolution comes first, and every
+    // command that opens the device connection waits for it), so dropping it costs a spawn and
+    // no tunnel — and the session then runs on a single child, pinned, as intended.
+    const child = this.child;
+    if (child && !this.pending && !this.stream) {
+      this.retired.add(child);
+      this.closeChild(child, `pinned to ${udid}`);
+    }
+  }
 
   /** Whether a child is alive right now. */
   get isRunning(): boolean {
@@ -117,13 +153,15 @@ export class ServeClient {
     const timeoutMs = this.warmedUp ? REQUEST_TIMEOUT_MS : FIRST_REQUEST_TIMEOUT_MS;
     const timer = setTimeout(() => {
       // The child is wedged on this request (a dead tunnel, typically): later requests would
-      // queue behind it forever, so start over with a fresh one
-      this.settle(
-        new Error(`${this.options.binaryName} did not answer ${cmd} within ${timeoutMs}ms`)
+      // queue behind it forever, so start over with a fresh one. `closeChild` rejects this
+      // request itself — going through `settle` here would pump the queue onto the child that
+      // is about to be dropped, and the request taken off it would be rejected in its place.
+      this.closeChild(
+        child,
+        `${this.options.binaryName} did not answer ${cmd} within ${timeoutMs}ms`
       );
-      this.closeChild(child, "request timed out");
     }, timeoutMs);
-    this.pending = { id, resolve, reject, timer };
+    this.pending = { id, warms: !CONNECTIONLESS_COMMANDS.has(cmd), resolve, reject, timer };
     child.stdin?.write(serializeServeRequest({ id, cmd, ...params }));
   }
 
@@ -139,10 +177,7 @@ export class ServeClient {
 
   private spawnChild(): ChildProcess {
     const binaryPath = this.options.binaryPath();
-    const child = spawn(binaryPath, [
-      "serve",
-      ...(this.options.udid ? ["--udid", this.options.udid] : []),
-    ]);
+    const child = spawn(binaryPath, ["serve", ...(this.udid ? ["--udid", this.udid] : [])]);
     this.child = child;
     this.warmedUp = false;
     this.disposing = false;
@@ -169,10 +204,11 @@ export class ServeClient {
       this.closeChild(child, message);
     });
     child.on("close", (code, signal) => {
-      const reason = this.disposing
+      const expected = this.disposing || this.retired.has(child);
+      const reason = expected
         ? `${this.options.binaryName} stopped (${describeExit(code, signal)})`
         : `${this.options.binaryName} exited unexpectedly (${describeExit(code, signal)})`;
-      if (!this.disposing) Logger.error(reason);
+      if (!expected) Logger.error(reason);
       this.closeChild(child, reason);
     });
 
@@ -212,7 +248,7 @@ export class ServeClient {
       Logger.debug(`Response to a request that is no longer awaited: ${JSON.stringify(response)}`);
       return;
     }
-    this.warmedUp = true;
+    if (this.pending.warms) this.warmedUp = true;
     const error = serveResponseError(response);
     if (error) this.settle(error);
     else this.settle(undefined, response.result);

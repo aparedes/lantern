@@ -15,7 +15,12 @@ export const ServerSocketConnectionApp = ({ socket, url }: { socket: SocketType;
   const performanceMeasureRef = React.useRef<PerformanceMeasurer | null>(null);
 
   const stop = useCallback(async () => {
-    performanceMeasureRef.current?.forceStop();
+    const measurer = performanceMeasureRef.current;
+    // Cleared, not just stopped: a START still waiting on the install or the refresh rate checks
+    // the ref to tell whether its run is still wanted, and would otherwise carry on and add an
+    // empty result — a RESET would even repopulate the results it just cleared.
+    performanceMeasureRef.current = null;
+    measurer?.forceStop();
     setState({
       isMeasuring: false,
     });

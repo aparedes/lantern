@@ -9,6 +9,7 @@ import {
   mockServeSpawn,
   nthRequest,
   spawnedChildren,
+  until,
 } from "./fakeServeChild";
 
 mockServeSpawn();
@@ -46,6 +47,20 @@ const answerDevices = async (child: FakeServeChild, udids: string[], n = 1) => {
     request.id,
     udids.map((udid) => binaryDevice(udid))
   );
+};
+
+/**
+ * Answers `devices` on the listing child and returns the child everything else runs on: a
+ * successful resolution pins the udid, which retires the (idle, tunnel-less) listing child so
+ * the next request spawns one carrying `--udid`. Request numbering restarts on that child; the
+ * request ids do not, they count up over the whole client.
+ */
+const resolveOn = async (child: FakeServeChild, udids: string[], n = 1) => {
+  await answerDevices(child, udids, n);
+  await until(() => spawnedChildren[spawnedChildren.length - 1] !== child, "the pinned child");
+  const pinned = spawnedChildren[spawnedChildren.length - 1];
+  expect(pinned.args).toEqual(["serve", "--udid", udids[0]]);
+  return pinned;
 };
 
 describe("toDeviceInfos", () => {
@@ -145,16 +160,15 @@ describe("IOSProfiler apps", () => {
   it("lists apps with their running state over the same child", async () => {
     const profiler = new IOSProfiler();
     const listing = profiler.listApps();
-    const child = await currentChild();
-    await answerDevices(child, [UDID]);
+    const child = await resolveOn(await currentChild(), [UDID]);
 
-    const apps = await nthRequest(child, 2);
+    const apps = await nthRequest(child, 1);
     expect(apps.cmd).toBe("apps");
     child.respond(apps.id, [
       { bundleId: "com.example.b", name: "Beta", executableName: "Beta", kind: "User" },
       { bundleId: "com.example.a", name: "Alpha", executableName: "Alpha", kind: "User" },
     ]);
-    const running = await nthRequest(child, 3);
+    const running = await nthRequest(child, 2);
     expect(running.cmd).toBe("running-apps");
     child.respond(running.id, [
       { bundleId: "com.example.b", name: "Beta", executableName: "Beta", kind: "User", pid: 4 },
@@ -169,9 +183,8 @@ describe("IOSProfiler apps", () => {
   it("detects the only running app, and asks to pick otherwise", async () => {
     const profiler = new IOSProfiler();
     const detecting = profiler.detectCurrentBundleId();
-    const child = await currentChild();
-    await answerDevices(child, [UDID]);
-    const running = await nthRequest(child, 2);
+    const child = await resolveOn(await currentChild(), [UDID]);
+    const running = await nthRequest(child, 1);
     expect(running.cmd).toBe("running-apps");
     child.respond(running.id, [
       { bundleId: "com.example.a", name: "Alpha", executableName: "Alpha", kind: "User", pid: 4 },
@@ -179,16 +192,15 @@ describe("IOSProfiler apps", () => {
     expect(await detecting).toBe("com.example.a");
 
     const none = profiler.detectCurrentBundleId();
-    child.respond((await nthRequest(child, 3)).id, []);
+    child.respond((await nthRequest(child, 2)).id, []);
     await expect(none).rejects.toThrow("No app is running on the iOS device");
   });
 
   it("stops an app with a kill request, and only logs a failure", async () => {
     const profiler = new IOSProfiler();
     const stopping = profiler.stopApp("com.example.a");
-    const child = await currentChild();
-    await answerDevices(child, [UDID]);
-    const kill = await nthRequest(child, 2);
+    const child = await resolveOn(await currentChild(), [UDID]);
+    const kill = await nthRequest(child, 1);
     expect(kill).toEqual({ id: 2, cmd: "kill", bundleId: "com.example.a" });
     child.fail(kill.id, "APP_NOT_FOUND", "com.example.a is not running");
 
@@ -204,9 +216,8 @@ describe("IOSProfiler.startSession", () => {
   /** A session whose poll request was accepted by the child */
   const startPolling = async (profiler = new IOSProfiler()) => {
     const session = profiler.startSession("com.example");
-    const child = await currentChild();
-    await answerDevices(child, [UDID]);
-    const poll = await nthRequest(child, 2);
+    const child = await resolveOn(await currentChild(), [UDID]);
+    const poll = await nthRequest(child, 1);
     expect(poll).toEqual({
       id: 2,
       cmd: "poll",
@@ -256,7 +267,7 @@ describe("IOSProfiler.startSession", () => {
     session.on("ended", ended);
 
     const stopping = session.stop();
-    const stop = await nthRequest(child, 3);
+    const stop = await nthRequest(child, 2);
     expect(stop).toEqual({ id: 3, cmd: "stop" });
     child.stream({ type: "status", event: "stopped" });
     child.respond(stop.id, { stopped: true });
@@ -284,7 +295,7 @@ describe("IOSProfiler.startSession", () => {
     );
     // A later stop() is a no-op for the binary
     await session.stop();
-    expect(child.requests).toHaveLength(2);
+    expect(child.requests).toHaveLength(1);
   });
 
   it("ends when the serve child dies, and the next session respawns it", async () => {
@@ -297,8 +308,11 @@ describe("IOSProfiler.startSession", () => {
     expect(await session.ended).toBe("lantern-ios-profiler exited unexpectedly (code 1)");
 
     const next = profiler.startSession("com.example");
-    await nthRequest(spawnedChildren[1] ?? (await currentChild()), 1);
-    expect(spawnedChildren).toHaveLength(2);
+    // The device is already resolved, so the respawn is pinned and polls straight away
+    await until(() => spawnedChildren.length === 3, "a respawned serve child");
+    const respawned = spawnedChildren[2];
+    expect(respawned.args).toEqual(["serve", "--udid", UDID]);
+    expect((await nthRequest(respawned, 1)).cmd).toBe("poll");
     next.dispose();
   });
 
@@ -307,7 +321,7 @@ describe("IOSProfiler.startSession", () => {
     const { session, child } = await startPolling(profiler);
 
     const listing = profiler.listApps();
-    const apps = await nthRequest(child, 3);
+    const apps = await nthRequest(child, 2);
     child.fail(apps.id, "BUSY", "a poll is running: send stop first");
 
     const rejection = await listing.catch((e: unknown) => e);
@@ -318,9 +332,8 @@ describe("IOSProfiler.startSession", () => {
 
   it("fails the session when the poll request is refused", async () => {
     const session = new IOSProfiler().startSession("com.example");
-    const child = await currentChild();
-    await answerDevices(child, [UDID]);
-    const poll = await nthRequest(child, 2);
+    const child = await resolveOn(await currentChild(), [UDID]);
+    const poll = await nthRequest(child, 1);
     child.fail(poll.id, "APP_NOT_FOUND", "com.example is not installed");
 
     await expect(session.launched).rejects.toThrow("com.example is not installed");
@@ -331,7 +344,7 @@ describe("IOSProfiler.startSession", () => {
     const { session, child } = await startPolling();
 
     session.dispose();
-    const stop = await nthRequest(child, 3);
+    const stop = await nthRequest(child, 2);
     expect(stop.cmd).toBe("stop");
     child.stream({ type: "status", event: "stopped" });
     child.respond(stop.id, { stopped: true });

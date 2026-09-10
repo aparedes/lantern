@@ -69,6 +69,8 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
   private aTraceProcess: ChildProcess | null = null;
   private profilerProcess: ChildProcess | undefined;
   private recorder: ScreenRecorder | undefined;
+  /** The app was replaced; `restarted` waits for the new process's baseline sample. */
+  private restarting = false;
   private recordingStarted = false;
   private stopRequested = false;
   /** Known once `prepare` resolved (device resolved, profiler installed). */
@@ -216,7 +218,16 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
       } else {
         // The first sample is the baseline the next ones are diffed against
         cpuMeasuresAggregator.initStats(subProcessesStats);
-        this.emitStarted();
+        if (this.restarting) {
+          // Held back from `pid_changed`: the profiler reports that as soon as the old `/proc`
+          // is gone, then waits for the replacement to come up. Restarting the run's timing
+          // there would count the relaunch downtime as test runtime, so it waits for the
+          // baseline of the new process, which is this sample.
+          this.restarting = false;
+          this.emitRestarted();
+        } else {
+          this.emitStarted();
+        }
       }
       previousTime = timestamp;
     };
@@ -246,7 +257,7 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
             case "pid_changed":
               Logger.warn("Process id has changed, ignoring measures until now");
               reset();
-              this.emitRestarted();
+              this.restarting = true;
               break;
             case "stalled":
               Logger.warn(message);

@@ -205,6 +205,26 @@ describe("measurePerformance", () => {
       )
     ).rejects.toThrowError("No measure returned");
   });
+
+  it("releases the profiler once the iterations are over, and when they fail", async () => {
+    const dispose = spyOn(profiler, "dispose").mockImplementation(() => undefined);
+    try {
+      runTest.mockImplementationOnce(async () => {
+        mockPerformancePolling.emit({});
+      });
+      await measurePerformance("com.example", { run: runTest }, { iterationCount: 1 });
+      // The iOS profiler holds a `serve` child open, which would keep an embedding script alive
+      expect(dispose).toHaveBeenCalledTimes(1);
+
+      runTest.mockImplementationOnce(async () => Promise.resolve());
+      await expect(
+        measurePerformance("com.example", { run: runTest }, { iterationCount: 0 })
+      ).rejects.toThrow("No measure returned");
+      expect(dispose).toHaveBeenCalledTimes(2);
+    } finally {
+      dispose.mockRestore();
+    }
+  });
 });
 
 describe("PerformanceMeasurer", () => {

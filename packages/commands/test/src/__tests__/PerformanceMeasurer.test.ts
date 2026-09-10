@@ -58,4 +58,28 @@ describe("PerformanceMeasurer", () => {
 
     expect(measurer.measures).toHaveLength(2);
   });
+
+  it("restarts the run's timing on the replacement's baseline, not when the pid vanishes", async () => {
+    const measurer = new PerformanceMeasurer("com.example", {
+      recordOptions: { record: false },
+    });
+    await measurer.start();
+    await waitFor(() => measurer.session);
+    emitStarted();
+    emitMeasure(0);
+    await measurer.waitUntilMeasuring();
+
+    const firstTrace = measurer.timingTrace;
+    emitPidChanged();
+    await flushLines();
+    // The app is being relaunched: the profiler is still waiting for the new process, and that
+    // downtime must not be billed to the test
+    expect(measurer.timingTrace).toBe(firstTrace);
+
+    emitMeasure(0);
+    await flushLines();
+    expect(measurer.timingTrace).not.toBe(firstTrace);
+
+    measurer.forceStop();
+  });
 });

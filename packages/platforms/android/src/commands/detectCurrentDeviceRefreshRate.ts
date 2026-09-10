@@ -1,4 +1,4 @@
-import { executeCommand } from "./shell";
+import { adb } from "./adb";
 import { Logger } from "@lantern/logger";
 
 const DEFAULT_FRAME_RATE = 60;
@@ -14,9 +14,9 @@ function deviceRefreshRateManager() {
       }
       return refreshRate;
     },
-    setRefreshRate: () => {
+    setRefreshRate: (serial?: string) => {
       try {
-        refreshRate = detectCurrentDeviceRefreshRate();
+        refreshRate = detectCurrentDeviceRefreshRate(serial);
         Logger.info(`Target frame rate: ${refreshRate} Hz`);
       } catch (e) {
         Logger.error(`Could not detect device refresh rate: ${e}`);
@@ -26,9 +26,11 @@ function deviceRefreshRateManager() {
   };
 }
 
-export const detectCurrentDeviceRefreshRate = () => {
-  const command = 'adb shell dumpsys display | grep -E "mRefreshRate|DisplayDeviceInfo"';
-  const commandOutput = executeCommand(command);
+/** The pipeline runs on the device's shell, so it is one adb argument. */
+const DUMPSYS_DISPLAY = 'dumpsys display | grep -E "mRefreshRate|DisplayDeviceInfo"';
+
+export const detectCurrentDeviceRefreshRate = (serial?: string) => {
+  const commandOutput = adb(["shell", DUMPSYS_DISPLAY], { serial });
 
   const renderFrameRateMatch = commandOutput.match(/renderFrameRate\s+(\d+\.?\d*)/);
 
@@ -45,7 +47,7 @@ export const detectCurrentDeviceRefreshRate = () => {
     throw new Error(
       `Could not detect device refresh rate, ${
         commandOutput
-          ? `output of ${command} was ${commandOutput}`
+          ? `output of adb shell ${DUMPSYS_DISPLAY} was ${commandOutput}`
           : "do you have an Android device connected and unlocked?"
       }`
     );

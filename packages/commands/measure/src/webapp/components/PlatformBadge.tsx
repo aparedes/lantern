@@ -1,10 +1,10 @@
-import { Apple, AndroidRounded } from "@mui/icons-material";
+import { AndroidIcon, AppleIcon } from "@lantern/web-reporter-ui";
 import { Platform } from "@lantern/types";
 
 export const platformLabel = (platform: Platform) => (platform === "ios" ? "iOS" : "Android");
 
 export const PlatformIcon = ({ platform }: { platform: Platform }) =>
-  platform === "ios" ? <Apple /> : <AndroidRounded />;
+  platform === "ios" ? <AppleIcon /> : <AndroidIcon />;
 
 export const PlatformBadge = ({ platform }: { platform: Platform }) => (
   <div

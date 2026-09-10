@@ -4,9 +4,11 @@ Rust port of the former C++ profiler. This small binary is pushed to the
 Android device (`/data/local/tmp/lantern-android-profiler`) and polls CPU (`/proc/<pid>/task/*/stat`),
 RAM (`/proc/<pid>/statm`) and atrace (`trace_pipe`) measures for a given app.
 
-Its stdout is a wire protocol (`=START MEASURE=` / `=SEPARATOR=` / `=STOP MEASURE=`
-blocks, `CPP_ERROR_*` markers on stderr) parsed by `@lantern/android`
-(`src/commands/cppProfiler.ts` and `UnixProfiler.ts`) — keep them in sync.
+Its stdout is NDJSON — one `{"type":"measure",...}` or `{"type":"status",...}`
+object per line — and failures go to stderr as `LANTERN_PROFILER_ERROR_*` /
+`LANTERN_PROFILER_WARN_*` markers. The same conventions are used by the iOS
+profiler; both are parsed by `@lantern/profiler-protocol`, which documents the
+line shapes in `packages/core/profiler-protocol/README.md` — keep them in sync.
 
 Differences from the C++ version:
 
@@ -41,3 +43,6 @@ Build for your device architecture, push and run in one go:
 ```sh
 cargo test
 ```
+
+The Linux-only parts (`prctl`, `/proc`) are gated so the unit tests also run
+on a macOS host.

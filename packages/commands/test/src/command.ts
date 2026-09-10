@@ -1,7 +1,6 @@
 import { Command, Option } from "commander";
 import type { TestCase } from "./measurePerformance";
 import { executeAsync } from "./executeAsync";
-import { applyLogLevelOption, logLevelOption } from "./commands/logLevelOption";
 import {
   parseBitRate,
   parseDuration,
@@ -10,10 +9,15 @@ import {
 } from "./commands/optionParsers";
 import { PerformanceTester } from "./PerformanceTester";
 import { Logger } from "@lantern/logger";
-import { PlatformResolutionError, profiler, resolvePlatform, setPlatform } from "@lantern/profiler";
+import {
+  CommonOptions,
+  applyCommonOptions,
+  profiler,
+  registerCommonOptions,
+} from "@lantern/profiler";
 
 export const registerTestCommand = (program: Command) => {
-  program
+  const testCommand = program
     .command("test")
     .summary("Run a test several times and measure performance")
     .description(
@@ -83,17 +87,11 @@ lantern test --bundleId com.example.app --testCommand "maestro test flow.yml"
         "--skipRestart",
         "By default, Lantern closes the app before each iteration. This is useful if your e2e test starts the app, if it doesn't, add this flag"
       ).default(false)
-    )
-    .addOption(
-      new Option(
-        "--platform <platform>",
-        "android or ios. Defaults to the PLATFORM env var, then to whichever platform has a device connected"
-      ).choices(["android", "ios"])
-    )
-    .addOption(logLevelOption)
-    .action(async (options) => {
-      await runTest(options);
-    });
+    );
+
+  registerCommonOptions(testCommand).action(async (options) => {
+    await runTest(options);
+  });
 };
 
 const runTest = async ({
@@ -107,13 +105,12 @@ const runTest = async ({
   resultsFilePath,
   resultsTitle,
   afterEachCommand,
-  logLevel,
   record,
   recordSize,
   recordBitRate,
   skipRestart,
-  platform,
-}: {
+  ...commonOptions
+}: CommonOptions & {
   duration?: number;
   iterationCount?: number;
   maxRetries?: number;
@@ -124,28 +121,14 @@ const runTest = async ({
   bundleId: string;
   resultsFilePath?: string;
   resultsTitle?: string;
-  logLevel?: string;
   record?: boolean;
   recordSize?: string;
   recordBitRate?: number;
   skipRestart?: boolean;
-  platform?: string;
 }) => {
-  let resolvedPlatform: ReturnType<typeof resolvePlatform>;
-  try {
-    resolvedPlatform = resolvePlatform(platform);
-    setPlatform(resolvedPlatform);
-  } catch (error) {
-    if (error instanceof PlatformResolutionError) {
-      Logger.error(error.message);
-      process.exit(1);
-    }
-    throw error;
-  }
+  const { platform: resolvedPlatform } = await applyCommonOptions(commonOptions);
 
-  applyLogLevelOption(logLevel);
-
-  if (record && !profiler.getScreenRecorder("lantern-record-probe.mp4")) {
+  if (record && !profiler.supportsScreenRecording()) {
     Logger.warn(
       `--record was passed but screen recording is not supported on ${resolvedPlatform}, no video will be recorded`
     );
@@ -186,7 +169,10 @@ const runTest = async ({
   try {
     await performanceTester.iterate();
     performanceTester.writeResults();
+    // The iOS profiler keeps a `serve` process alive; release it so the CLI can exit
+    profiler.dispose();
   } catch (error) {
+    profiler.dispose();
     // Best effort: the report is a degraded view, its failure must not hide the test failure
     try {
       performanceTester.writeResults();

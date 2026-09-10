@@ -1,8 +1,8 @@
 import { describe, it, expect, afterAll, spyOn, mock } from "bun:test";
 import { listAndroidDevices, parseAdbDevices } from "../listDevices";
-import * as shell from "../shell";
+import * as adbModule from "../adb";
 
-const executeCommandSpy = spyOn(shell, "executeCommand");
+const adbSpy = spyOn(adbModule, "adb");
 
 describe("parseAdbDevices", () => {
   it("returns no device when adb only prints its header", () => {
@@ -33,7 +33,7 @@ R58M12345Z             device usb:1-1 product:d2q model:Pixel_7 device:d2q trans
 
 describe("listAndroidDevices", () => {
   it("returns an empty list when adb is missing or fails", () => {
-    executeCommandSpy.mockImplementation(() => {
+    adbSpy.mockImplementation(() => {
       throw new Error("command not found: adb");
     });
 
@@ -41,8 +41,8 @@ describe("listAndroidDevices", () => {
   });
 
   it("parses the output of `adb devices -l`", () => {
-    executeCommandSpy.mockImplementation((command) => {
-      expect(command).toEqual("adb devices -l");
+    adbSpy.mockImplementation((args) => {
+      expect(args).toEqual(["devices", "-l"]);
 
       return `List of devices attached
 R58M12345Z             device usb:1-1 model:Pixel_7 device:d2q transport_id:2

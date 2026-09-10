@@ -1,43 +1,6 @@
 import { Logger } from "@lantern/logger";
-import { execSync, spawn, ChildProcess, SpawnSyncReturns } from "child_process";
-
-export const executeCommand = (command: string): string => {
-  try {
-    return execSync(command, { stdio: "pipe" }).toString();
-  } catch (error: unknown) {
-    // The Error object will contain the entire result from child_process.spawnSync()
-    // (source: https://nodejs.org/api/child_process.html#child_processexecsynccommand-options)
-    // stderr can be missing (e.g. when the command could not be spawned at all)
-    const stderr = (error as Partial<SpawnSyncReturns<Buffer>>).stderr;
-    Logger.debug(
-      `Error while executing command "${command}": ${stderr ? stderr.toString() : String(error)}`
-    );
-    throw error;
-  }
-};
-
-const childProcesses: ChildProcess[] = [];
-
-export const cleanup = () => {
-  childProcesses.forEach((child) => {
-    child.kill();
-  });
-};
-
-const exit = () => {
-  cleanup();
-  process.exit();
-};
-
-declare const global: {
-  Flipper: unknown;
-};
-
-if (!global.Flipper) {
-  process.on("SIGINT", exit); // CTRL+C
-  process.on("SIGQUIT", exit); // Keyboard quit
-  process.on("SIGTERM", exit); // `kill` command
-}
+import { spawn, ChildProcess } from "child_process";
+import { createInterface } from "readline";
 
 /**
  * In AWS when we properly kill the process termination gets logged in stderr with a weird log
@@ -46,25 +9,17 @@ export const canIgnoreAwsTerminationError = (log: string) =>
   log.includes("Terminated              LD_LIBRARY_PATH");
 
 /**
- * A command is either a single string split on spaces, or an already split argv array.
- * Use the array form when arguments (e.g. file paths) may contain spaces.
+ * Spawns `argv[0]` with the remaining arguments (never through a shell), logging its stderr and
+ * an unexpected exit code. The caller owns the returned process.
  */
-export type Command = string | string[];
-
-const toArgv = (command: Command): string[] =>
-  Array.isArray(command) ? command : command.split(" ");
-
-const toCommandLabel = (command: Command): string =>
-  Array.isArray(command) ? command.join(" ") : command;
-
 export const executeAsync = (
-  command: Command,
+  argv: string[],
   { logStderr } = {
     logStderr: true,
   }
 ): ChildProcess => {
-  const [executable, ...args] = toArgv(command);
-  const commandLabel = toCommandLabel(command);
+  const [executable, ...args] = argv;
+  const commandLabel = argv.join(" ");
 
   const childProcess = spawn(executable, args);
 
@@ -79,9 +34,6 @@ export const executeAsync = (
 
   childProcess.on("close", (code) => {
     Logger.debug(`child process exited with code ${code}`);
-
-    const index = childProcesses.indexOf(childProcess);
-    if (index !== -1) childProcesses.splice(index, 1);
 
     const AUTHORIZED_CODES = [
       0, // Success
@@ -102,36 +54,22 @@ export const executeAsync = (
     Logger.error(`Process for ${commandLabel} errored with ${err}`);
   });
 
-  childProcesses.push(childProcess);
-
   return childProcess;
 };
 
-export const executeLongRunningProcess = (
-  command: Command,
-  delimiter: string,
-  onData: (data: string) => void
-) => {
-  const process = executeAsync(command, {
+/**
+ * Spawns a process whose stdout is line oriented (NDJSON), calling `onLine` with each complete
+ * line, however the chunks were split. A trailing partial line is delivered once completed, or
+ * when stdout ends.
+ */
+export const executeLineProcess = (argv: string[], onLine: (line: string) => void) => {
+  const process = executeAsync(argv, {
     logStderr: false,
   });
-  let currentChunk = "";
 
-  process.stdout?.on("data", (data: Buffer) => {
-    currentChunk += data.toString();
-
-    const dataSplits = currentChunk.split(delimiter);
-
-    dataSplits.slice(0, -1).forEach((split) => {
-      onData(split.trim());
-    });
-
-    if (dataSplits.length > 0) {
-      currentChunk = currentChunk.slice(
-        currentChunk.length - 1 * dataSplits[dataSplits.length - 1].length
-      );
-    }
-  });
+  if (process.stdout) {
+    createInterface({ input: process.stdout }).on("line", onLine);
+  }
 
   return process;
 };

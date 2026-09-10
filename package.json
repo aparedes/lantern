@@ -19,7 +19,7 @@
     "watch": "tsc --build --watch",
     "test": "oxfmt --check && bun run build && oxlint --max-warnings 0 && bun run test:unit",
     "test:unit": "bun run test:unit:node && bun run test:unit:dom",
-    "test:unit:node": "bun test --preload ./test-setup/node.ts packages/platforms/android/src packages/platforms/ios/src packages/platforms/profiler/src packages/commands/test/src packages/core/reporter/src packages/commands/report/__tests__ packages/core/shell/src",
+    "test:unit:node": "bun test --preload ./test-setup/node.ts packages/platforms/android/src packages/platforms/ios/src packages/platforms/profiler/src packages/core/profiler-protocol/src packages/commands/test/src packages/core/reporter/src packages/commands/report/__tests__ packages/core/shell/src",
     "test:unit:dom": "bun test --timeout 20000 --preload ./test-setup/dom.tsx packages/commands/measure/src/__tests__/webapp && bun test --timeout 20000 --preload ./test-setup/dom.tsx packages/core/web-reporter-ui/__tests__ packages/commands/measure/src/__tests__/measure.test.tsx packages/commands/measure/src/__tests__/server",
     "test:coverage": "bun run test:unit:node --coverage && bun run test:unit:dom --coverage",
     "run-cli-example": "bun examples/cli/index.ts",

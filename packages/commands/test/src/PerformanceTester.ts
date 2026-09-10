@@ -28,9 +28,6 @@ export class PerformanceTester {
     private testCase: TestCase,
     options: PerformanceTesterOptions = {}
   ) {
-    // Important to ensure that the CPP profiler is initialized before we run the test!
-    profiler.installProfilerOnDevice();
-
     const title = options.resultsFileOptions?.title || "Results";
 
     const path = options.resultsFileOptions?.path;
@@ -54,6 +51,9 @@ export class PerformanceTester {
   }
 
   async iterate(): Promise<void> {
+    // Important to ensure that the profiler is installed before we run the test!
+    await profiler.installProfilerOnDevice();
+
     let currentIterationIndex = 0;
     this.measures = [];
 

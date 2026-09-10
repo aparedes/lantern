@@ -1,21 +1,30 @@
-import { profiler } from "@lantern/profiler";
+import { installSignalHandlers, profiler } from "@lantern/profiler";
 import { getAverageCpuUsage } from "@lantern/reporter";
 import { Measure, ThreadNames } from "@lantern/types";
 
-const bundleId = profiler.detectCurrentBundleId() || "";
+installSignalHandlers();
 
-const measures: Measure[] = [];
+const main = async () => {
+  const bundleId = await profiler.detectCurrentBundleId();
 
-const polling = profiler.pollPerformanceMeasures(bundleId, {
-  onMeasure: (measure: Measure) => {
+  const measures: Measure[] = [];
+
+  const session = profiler.startSession(bundleId);
+  session.on("measure", (measure: Measure) => {
     measures.push(measure);
     console.log(`JS Thread CPU Usage: ${measure.cpu.perName[ThreadNames.RN.JS_ANDROID]}%`);
     console.log(`RAM Usage: ${measure.ram}MB`);
-  },
-});
+  });
 
-setTimeout(() => {
-  polling?.stop();
+  await new Promise((resolve) => setTimeout(resolve, 10000));
+  await session.stop();
+  // Releases what the profiler keeps across sessions (the iOS `serve` process)
+  profiler.dispose();
   const averageCpuUsage = getAverageCpuUsage(measures);
   console.log(`Average CPU Usage: ${averageCpuUsage}%`);
-}, 10000);
+};
+
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});

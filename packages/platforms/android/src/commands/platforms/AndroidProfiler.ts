@@ -1,42 +1,134 @@
+import fs from "fs";
+import os from "os";
 import { Logger } from "@lantern/logger";
-import { ChildProcess, execSync } from "child_process";
-import { executeAsync, executeCommand } from "../shell";
+import {
+  AppInfo,
+  DeviceInfo,
+  Profiler,
+  ProfilingSession,
+  StartSessionOptions,
+} from "@lantern/types";
+import { selectDevice } from "@lantern/profiler-protocol";
+import { adb } from "../adb";
 import { getAbi } from "../getAbi";
 import { detectCurrentAppBundleId } from "../detectCurrentAppBundleId";
-import { CppProfilerName, UnixProfiler } from "./UnixProfiler";
-import { ScreenRecorder } from "../ScreenRecorder";
 import { refreshRateManager } from "../detectCurrentDeviceRefreshRate";
 import { listAndroidDevices } from "../listDevices";
 import { listInstalledApps } from "../listInstalledApps";
 import { isDeviceProcessRunning } from "../isDeviceProcessRunning";
 import { waitFor } from "../../utils/waitFor";
+import { AndroidProfilingSession } from "./AndroidSession";
 
-/**
- * atrace only traces for the duration given with `-t` (default 5 s, and there is no "forever"),
- * after which it disables tracing and exits: the profiler then gets no more frame data and
- * FPS silently degrades. We use the longest practical duration and restart atrace when it
- * exits on its own (see `startATrace`).
- */
-const ATRACE_COMMAND = "adb shell atrace -c view -t 999";
+export const CppProfilerName = `lantern-android-profiler`;
+
+const defaultBinaryFolder = `${__dirname}/../../..${__dirname.includes("dist") ? "/.." : ""}/rust-profiler/bin`;
+// Allow overriding the binary folder with an environment variable
+const getBinaryFolder = () => process.env.LANTERN_BINARY_PATH || defaultBinaryFolder;
+
 const STOP_APP_TIMEOUT = 5000;
+/** The profiler binary draws no frames; the value only has to exist for the report. */
+const SELF_PROFILING_REFRESH_RATE = 60;
 
-const enableFpsDebug = () => executeCommand("adb shell setprop debug.hwui.profile true");
+export interface AndroidProfilerOptions {
+  /** `adb -s` serial; when omitted, the only connected device is used. */
+  serial?: string;
+  /**
+   * Measure the profiler binary itself rather than an app (used to profile Lantern): no atrace,
+   * no FPS, and a distinct binary name so that the measured Lantern process and the measuring
+   * one never confuse each other's profiler.
+   */
+  selfProfiling?: boolean;
+}
 
-export class AndroidProfiler extends UnixProfiler {
-  private aTraceProcess: ChildProcess | null = null;
+export class AndroidProfiler implements Profiler {
+  /** The `--device` serial the caller asked for, before resolution. */
+  readonly requestedDevice: string | undefined;
+  private readonly selfProfiling: boolean;
+  private device: Promise<DeviceInfo> | undefined;
+  private installation: Promise<void> | undefined;
+  private cpuClockTick: number | undefined;
+  private RAMPageSize: number | undefined;
 
-  installProfilerOnDevice(): void {
-    super.installProfilerOnDevice();
-    if (!refreshRateManager.isInitialized()) refreshRateManager.setRefreshRate();
-    if (!this.aTraceProcess) this.startATrace();
+  constructor({ serial, selfProfiling = false }: AndroidProfilerOptions = {}) {
+    this.requestedDevice = serial;
+    this.selfProfiling = selfProfiling;
   }
 
-  stop(): void {
-    this.stopATrace();
+  /**
+   * The device every adb call targets: the requested serial, else the only connected device.
+   * Resolved once, on first use, so that a plain `listDevices()` never needs a device.
+   */
+  resolveDevice(): Promise<DeviceInfo> {
+    this.device ??= this.listDevices().then((devices) =>
+      selectDevice(devices, {
+        requested: this.requestedDevice,
+        platformName: "Android",
+        idLabel: "serial",
+      })
+    );
+    // A failed resolution is not final: the device may get plugged in before the next call
+    this.device.catch(() => {
+      this.device = undefined;
+    });
+
+    return this.device;
   }
 
-  assertSupported(): void {
-    const sdkVersion = parseInt(executeCommand("adb shell getprop ro.build.version.sdk"), 10);
+  private async serial(): Promise<string> {
+    return (await this.resolveDevice()).id;
+  }
+
+  /**
+   * Main setup function for the native (Rust) profiler
+   *
+   * It will:
+   * - install the profiler binary for the correct architecture on the device
+   * - Populate needed values like CPU clock tick and RAM page size
+   * - Detect the device's refresh rate, the FPS target
+   *
+   * This needs to be done before measures and can take a few seconds. Concurrent and repeated
+   * calls share the first installation; a failed one is retried by the next call.
+   */
+  installProfilerOnDevice(): Promise<void> {
+    this.installation ??= this.install();
+    this.installation.catch(() => {
+      this.installation = undefined;
+    });
+
+    return this.installation;
+  }
+
+  private async install(): Promise<void> {
+    const serial = await this.serial();
+    this.assertSupported(serial);
+    this.installCppProfilerOnDevice(serial);
+    this.cpuClockTick = this.readDeviceNumber(serial, "printCpuClockTick");
+    this.RAMPageSize = this.readDeviceNumber(serial, "printRAMPageSize");
+    await this.detectDeviceRefreshRate();
+  }
+
+  private readDeviceNumber(serial: string, profilerCommand: string): number {
+    return parseInt(adb(["shell", this.getDeviceProfilerPath(), profilerCommand], { serial }), 10);
+  }
+
+  /** Known once `installProfilerOnDevice` resolved. */
+  getCpuClockTick(): number {
+    if (!this.cpuClockTick) {
+      throw new Error("CPU clock tick not initialized");
+    }
+    return this.cpuClockTick;
+  }
+
+  /** Known once `installProfilerOnDevice` resolved. */
+  getRAMPageSize(): number {
+    if (!this.RAMPageSize) {
+      throw new Error("RAM Page size not initialized");
+    }
+    return this.RAMPageSize;
+  }
+
+  private assertSupported(serial: string): void {
+    const sdkVersion = parseInt(adb(["shell", "getprop", "ro.build.version.sdk"], { serial }), 10);
 
     if (sdkVersion < 24) {
       throw new Error(
@@ -45,95 +137,75 @@ export class AndroidProfiler extends UnixProfiler {
     }
   }
 
-  protected pushExecutable(binaryTmpPath: string): void {
-    executeCommand(`adb push ${binaryTmpPath} ${this.getDeviceProfilerPath()}`);
-    executeCommand(`adb shell chmod 755 ${this.getDeviceProfilerPath()}`);
+  private installCppProfilerOnDevice(serial: string): void {
+    const abi = getAbi(serial);
+    Logger.info(`Installing profiler for ${abi} architecture`);
+
+    const binaryPath = `${getBinaryFolder()}/${CppProfilerName}-${abi}`;
+    if (!fs.existsSync(binaryPath)) {
+      throw new Error(
+        `Unsupported device ABI "${abi}": no profiler binary is shipped for it (supported: arm64-v8a)`
+      );
+    }
+    const binaryTmpPath = `${os.tmpdir()}/lantern-${CppProfilerName}-${abi}`;
+
+    // Copy to a real file first: when running from the standalone executable the source may be an embedded (virtual) path
+    fs.writeFileSync(binaryTmpPath, fs.readFileSync(binaryPath));
+
+    const devicePath = this.getDeviceProfilerPath();
+    adb(["push", binaryTmpPath, devicePath], { serial });
+    adb(["shell", "chmod", "755", devicePath], { serial });
+    Logger.success(`Profiler installed in ${devicePath}`);
   }
 
   public getDeviceProfilerPath(): string {
-    return `/data/local/tmp/${CppProfilerName}`;
+    return `/data/local/tmp/${CppProfilerName}${this.selfProfiling ? "_SELF_REPORT" : ""}`;
   }
 
-  protected stopATrace() {
-    // We need to close this process, otherwise tests will hang
-    Logger.debug("Stopping atrace process...");
-    this.aTraceProcess?.kill();
-    this.aTraceProcess = null;
+  /**
+   * Starts the native profiler on the device for `bundleId`, along with atrace (for FPS) and
+   * the screen recorder when asked: the returned session owns all of them. The device is
+   * resolved and the profiler installed as part of the session's launch.
+   */
+  startSession(bundleId: string, options: StartSessionOptions = {}): ProfilingSession {
+    return new AndroidProfilingSession(
+      bundleId,
+      async () => {
+        await this.installProfilerOnDevice();
+
+        return {
+          serial: await this.serial(),
+          deviceProfilerPath: this.getDeviceProfilerPath(),
+          profilerName: CppProfilerName,
+          cpuClockTick: this.getCpuClockTick(),
+          ramPageSize: this.getRAMPageSize(),
+          supportFPS: this.supportFPS(),
+          withAtrace: !this.selfProfiling,
+        };
+      },
+      options
+    );
   }
 
-  protected startATrace() {
-    // Done here rather than at import time so that a machine without `adb` (iOS only) can
-    // still load this package.
-    enableFpsDebug();
-
-    Logger.debug("Stopping atrace and flushing output...");
-    /**
-     * Since output from the atrace --async_stop
-     * command can be quite big, seems like buffer overflow can happen
-     * Let's ignore the output then
-     *
-     * See https://stackoverflow.com/questions/63796633/spawnsync-bin-sh-enobufs
-     */
-    execSync("adb shell atrace --async_stop", { stdio: "ignore" });
-    Logger.debug("Starting atrace...");
-    const aTraceProcess = executeAsync(ATRACE_COMMAND);
-    this.aTraceProcess = aTraceProcess;
-
-    // atrace dumps its buffer on stdout when it stops, drain it so it never blocks on a full pipe
-    aTraceProcess.stdout?.on("data", () => {});
-
-    aTraceProcess.on("close", (code) => {
-      // Stopped by us (`stopATrace` clears the reference first): nothing to restart
-      if (this.aTraceProcess !== aTraceProcess) return;
-      this.aTraceProcess = null;
-
-      if (code !== 0) {
-        // e.g. the device got disconnected or tracing is unavailable: respawning right away would
-        // loop tightly, and the adb commands below would throw from inside this event handler
-        Logger.error(
-          `atrace exited with code ${code}, FPS will no longer be measured until the next test run`
-        );
-        return;
-      }
-
-      // Its `-t` budget expired (see ATRACE_COMMAND), so trace again
-      Logger.debug("atrace exited on its own, restarting it...");
-      try {
-        this.startATrace();
-      } catch (error) {
-        Logger.error(
-          `Could not restart atrace, FPS will no longer be measured: ${
-            error instanceof Error ? error.message : error
-          }`
-        );
-      }
-    });
-  }
-
-  public getDeviceCommand(command: string): string {
-    return `adb shell ${command}`;
-  }
-
-  protected getAbi(): string {
-    return getAbi();
-  }
-
-  public detectCurrentBundleId(): string {
-    return detectCurrentAppBundleId().bundleId;
-  }
-
-  public supportFPS(): boolean {
+  public supportsScreenRecording(): boolean {
     return true;
   }
 
-  public getScreenRecorder(videoPath: string) {
-    return new ScreenRecorder(videoPath);
+  public supportFPS(): boolean {
+    return !this.selfProfiling;
+  }
+
+  public async detectCurrentBundleId(): Promise<string> {
+    if (this.selfProfiling) return CppProfilerName;
+
+    return detectCurrentAppBundleId(await this.serial()).bundleId;
   }
 
   async stopApp(bundleId: string) {
-    execSync(`adb shell am force-stop ${bundleId}`);
+    const serial = await this.serial();
+    adb(["shell", "am", "force-stop", bundleId], { serial });
     try {
-      await waitFor(() => !isDeviceProcessRunning(bundleId), {
+      await waitFor(() => !isDeviceProcessRunning(bundleId, serial), {
         timeout: STOP_APP_TIMEOUT,
         checkInterval: 100,
       });
@@ -142,15 +214,28 @@ export class AndroidProfiler extends UnixProfiler {
     }
   }
 
-  public detectDeviceRefreshRate(): number {
+  /**
+   * Detected once per process (`refreshRateManager` is what `FrameTimeParser.getFps` reads
+   * synchronously while measures flow).
+   */
+  public async detectDeviceRefreshRate(): Promise<number> {
+    if (this.selfProfiling) return SELF_PROFILING_REFRESH_RATE;
+
+    if (!refreshRateManager.isInitialized()) {
+      refreshRateManager.setRefreshRate(await this.serial());
+    }
+
     return refreshRateManager.getRefreshRate();
   }
 
-  public listApps() {
-    return listInstalledApps();
+  public async listApps(): Promise<AppInfo[]> {
+    return listInstalledApps(await this.serial());
   }
 
-  public listDevices() {
+  public async listDevices(): Promise<DeviceInfo[]> {
     return listAndroidDevices();
   }
+
+  /** Nothing outlives a session on Android: every adb call is a one-shot. */
+  public dispose(): void {}
 }

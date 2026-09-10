@@ -34,18 +34,20 @@ export const useBundleIdControls = (
     socket.on(SocketEvents.AUTODETECT_BUNDLE_ID, () => {
       stop();
 
-      try {
-        const bundleId = profiler.detectCurrentBundleId();
-        setState({
-          bundleId,
-        });
-        listApps();
-      } catch (error) {
-        socket.emit(
-          SocketEvents.SEND_ERROR,
-          error instanceof Error ? error.message : "unknown error"
+      profiler
+        .detectCurrentBundleId()
+        .then((bundleId) => {
+          setState({
+            bundleId,
+          });
+          listApps();
+        })
+        .catch((error) =>
+          socket.emit(
+            SocketEvents.SEND_ERROR,
+            error instanceof Error ? error.message : "unknown error"
+          )
         );
-      }
     });
 
     socket.on(SocketEvents.LIST_APPS, listApps);

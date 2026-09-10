@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::sync::Mutex;
 
 /// Lines read from the atrace pipe by the reader thread, drained by the
@@ -11,14 +11,16 @@ fn add_atrace_line(line: Vec<u8>) {
     ATRACE_LINES.lock().unwrap().push(line);
 }
 
-/// Run from the main thread: print buffered lines and clear the buffer.
-pub fn print_atrace_lines(out: &mut impl Write) {
+/// Run from the main thread: take the buffered lines, joined by newlines.
+pub fn take_atrace_lines() -> Vec<u8> {
     let mut lines = ATRACE_LINES.lock().unwrap();
+    let mut joined = Vec::new();
     for line in lines.iter() {
-        let _ = out.write_all(line);
-        let _ = out.write_all(b"\n");
+        joined.extend_from_slice(line);
+        joined.push(b'\n');
     }
     lines.clear();
+    joined
 }
 
 /// Run from the main thread while waiting for the app to start.
@@ -41,11 +43,11 @@ fn open_trace_stream() -> Option<File> {
 ///
 /// When no trace pipe can be opened (atrace unavailable on this OS build, or
 /// not readable from adb shell) the thread emits the
-/// `CPP_ERROR_ATRACE_UNAVAILABLE` marker on stderr and returns: the main
-/// thread keeps polling CPU/RAM, its atrace section simply stays empty.
+/// `LANTERN_PROFILER_WARN_ATRACE_UNAVAILABLE` marker on stderr and returns:
+/// the main thread keeps polling CPU/RAM, its atrace payload simply stays empty.
 pub fn read_atrace_thread() {
     let Some(file) = open_trace_stream() else {
-        eprintln!("CPP_ERROR_ATRACE_UNAVAILABLE Unable to find Atrace output file");
+        crate::wire::warn("ATRACE_UNAVAILABLE", "Unable to find Atrace output file");
         return;
     };
     let mut reader = BufReader::new(file);

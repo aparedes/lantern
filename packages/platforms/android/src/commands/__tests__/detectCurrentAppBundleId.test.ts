@@ -1,7 +1,7 @@
 import { detectCurrentAppBundleId } from "../detectCurrentAppBundleId";
 import fs from "fs";
 import { describe, it, expect, afterAll, spyOn, mock } from "bun:test";
-import * as shell from "../shell";
+import * as adbModule from "../adb";
 
 const sampleOutput = fs.readFileSync(`${__dirname}/dumpsys-window.txt`, "utf-8");
 
@@ -9,12 +9,12 @@ const sampleOutputWithoutDollars = `
 mSurface=Surface(name=com.example.staging/com.example.MainActivity)/@0x993d3ae
 mSurface=Surface(name=com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity)/@0x469a915`;
 
-const executeCommandSpy = spyOn(shell, "executeCommand");
+const adbSpy = spyOn(adbModule, "adb");
 
 describe("detectCurrentAppBundleId", () => {
   it("retrieves correctly bundle id and app activity when result match 'name=appId/appActivity$'", () => {
-    executeCommandSpy.mockImplementation((command) => {
-      expect(command).toEqual("adb shell dumpsys window windows");
+    adbSpy.mockImplementation((args) => {
+      expect(args).toEqual(["shell", "dumpsys", "window", "windows"]);
 
       return sampleOutput;
     });
@@ -26,8 +26,8 @@ describe("detectCurrentAppBundleId", () => {
   });
 
   it("retrieves correctly bundle id and app activity when result match 'name=appId/appActivity)'", () => {
-    executeCommandSpy.mockImplementation((command) => {
-      expect(command).toEqual("adb shell dumpsys window windows");
+    adbSpy.mockImplementation((args) => {
+      expect(args).toEqual(["shell", "dumpsys", "window", "windows"]);
 
       return sampleOutputWithoutDollars;
     });
@@ -38,8 +38,18 @@ describe("detectCurrentAppBundleId", () => {
     });
   });
 
+  it("targets the given device", () => {
+    adbSpy.mockImplementation((args, options) => {
+      expect(options).toEqual({ serial: "R58M12345Z" });
+
+      return sampleOutputWithoutDollars;
+    });
+
+    expect(detectCurrentAppBundleId("R58M12345Z").bundleId).toBe("com.example.staging");
+  });
+
   it("throws an error in case it couldn't find them", () => {
-    executeCommandSpy.mockImplementation(() => "");
+    adbSpy.mockImplementation(() => "");
     expect(detectCurrentAppBundleId).toThrowError();
   });
 });

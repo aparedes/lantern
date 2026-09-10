@@ -68,6 +68,8 @@ mod tests {
         assert!(!matches_bundle_id(b"\0", "com.example"));
     }
 
+    // /proc only exists on Linux; the crate is also unit-tested on macOS hosts
+    #[cfg(target_os = "linux")]
     #[test]
     fn finds_own_process() {
         let exe = std::fs::read_link("/proc/self/exe").unwrap();

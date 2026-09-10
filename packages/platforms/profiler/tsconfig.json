@@ -3,7 +3,23 @@
   "compilerOptions": {
     "outDir": "./dist"
   },
-  "references": [{ "path": "../android" }, { "path": "../ios" }, { "path": "../../core/types" }],
+  "references": [
+    {
+      "path": "../android"
+    },
+    {
+      "path": "../ios"
+    },
+    {
+      "path": "../../core/types"
+    },
+    {
+      "path": "../../core/logger"
+    },
+    {
+      "path": "../../core/profiler-protocol"
+    }
+  ],
   "include": ["./src/**/*.ts"],
   "exclude": ["./dist/**/*"]
 }

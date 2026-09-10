@@ -3,7 +3,11 @@
   "compilerOptions": {
     "outDir": "./dist"
   },
-  "references": [{ "path": "../../core/logger" }, { "path": "../../core/types" }],
+  "references": [
+    { "path": "../../core/logger" },
+    { "path": "../../core/types" },
+    { "path": "../../core/profiler-protocol" }
+  ],
   "include": ["./src/**/*.ts"],
   "exclude": ["./dist/**/*"]
 }

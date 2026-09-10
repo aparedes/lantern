@@ -17,7 +17,8 @@
     "react": "^19.2.0"
   },
   "devDependencies": {
-    "@mui/icons-material": "^9.4.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
     "@mui/material": "^9.4.0",
     "@lantern/web-reporter-ui": "^0.17.0",
     "@tailwindcss/vite": "^4.3.3",

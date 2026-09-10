@@ -112,7 +112,11 @@ DEVELOPMENT_MODE=true bun packages/commands/measure/dist/server/bin.js measure
 
 Pass `--platform android|ios` (or set `PLATFORM=ios` in the environment) to
 pick a platform explicitly; it's otherwise auto-detected when only one kind
-of device is connected.
+of device is connected. When several devices of that platform are connected,
+pick one with `--device <serial|udid>` (an adb serial on Android, a UDID on
+iOS); `--logLevel <silent|error|warn|success|info|debug|trace>` controls the
+verbosity. These three options are shared by `test`, `measure` and
+`tools get_bundle_id` (see `registerCommonOptions` in `@lantern/profiler`).
 
 ### `test` command
 
@@ -128,8 +132,8 @@ This command is the equivalent of
 lantern test
 ```
 
-`test` also accepts `--platform android|ios` (or the `PLATFORM` env var), the
-same as `measure`.
+`test` also accepts `--platform`, `--device` and `--logLevel` (or the
+`PLATFORM` env var), the same as `measure`.
 
 ### `tools` command
 
@@ -144,6 +148,9 @@ This command is the equivalent of
 ```
 lantern tools
 ```
+
+`tools get_bundle_id` takes the same `--platform`, `--device` and `--logLevel`
+options as `measure` and `test`.
 
 ### web-reporter
 

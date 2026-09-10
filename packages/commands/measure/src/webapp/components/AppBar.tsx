@@ -1,9 +1,8 @@
 import React from "react";
-import MaterialAppBar from "@mui/material/AppBar";
 
 export const AppBar = ({ children }: { children: React.ReactNode }) => {
   return (
-    <MaterialAppBar position="relative" className="bg-dark-charcoal">
+    <header className="relative w-full bg-dark-charcoal text-white shadow-md">
       <div
         style={{
           flexDirection: "row",
@@ -14,6 +13,6 @@ export const AppBar = ({ children }: { children: React.ReactNode }) => {
       >
         {children}
       </div>
-    </MaterialAppBar>
+    </header>
   );
 };

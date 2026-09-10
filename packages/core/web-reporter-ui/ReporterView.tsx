@@ -5,8 +5,7 @@ import { ReportSummary } from "./src/sections/ReportSummary/ReportSummary.compon
 import { RAMReport } from "./src/sections/RAMReport";
 import { Report as ReportModel } from "@lantern/reporter";
 import { FPSReport } from "./src/sections/FPSReport";
-import FileDownloadIcon from "@mui/icons-material/FileDownload";
-import { createTheme, ThemeProvider } from "@mui/material/styles";
+import { FileDownloadIcon } from "./src/components/icons/SvgIcon";
 import { Header, MenuOption } from "./src/components/Header";
 import { exportRawDataToZIP } from "./utils/reportRawDataExport";
 import { IterationSelector, useIterationSelector } from "./src/components/IterationSelector";
@@ -14,13 +13,6 @@ import { VideoSection } from "./src/sections/VideoSection";
 import { VideoEnabledContext } from "./videoCurrentTimeContext";
 import { hasValueForEveryMeasure } from "./src/sections/hideSectionForEmptyValue";
 import { mapThreadNames } from "./src/sections/threads";
-
-const theme = createTheme({
-  typography: {
-    fontFamily: ["open-sans", "Roboto", "Helvetica", "Arial", "sans-serif"].join(","),
-    fontWeightBold: 600,
-  },
-});
 
 const Report = ({
   results: rawResults,
@@ -55,7 +47,7 @@ const Report = ({
               menuOptions={[
                 {
                   label: "Save all as ZIP",
-                  icon: <FileDownloadIcon fontSize="small" />,
+                  icon: <FileDownloadIcon size={20} />,
                   onClick: () => {
                     exportRawDataToZIP(results);
                   },
@@ -108,9 +100,7 @@ export const IterationsReporterView = ({
   additionalMenuOptions?: MenuOption[];
 }) => {
   return results.length > 0 ? (
-    <ThemeProvider theme={theme}>
-      <Report results={results} additionalMenuOptions={additionalMenuOptions} />
-    </ThemeProvider>
+    <Report results={results} additionalMenuOptions={additionalMenuOptions} />
   ) : null;
 };
 

@@ -1,5 +1,6 @@
 import {
   Button,
+  DeleteIcon,
   setThemeAtRandom,
   IterationsReporterView,
   getThemeColorPalette,
@@ -8,7 +9,6 @@ import { useEffect } from "react";
 
 import { BundleIdSelector } from "./components/BundleIdSelector";
 import { StartButton } from "./components/StartButton";
-import { Delete } from "@mui/icons-material";
 import { AppBar } from "./components/AppBar";
 import { useMeasures } from "./useMeasures";
 import { SocketState } from "./components/SocketState";
@@ -54,7 +54,7 @@ export const MeasureWebApp = () => {
             {/* It's assumed that the color palette is fixed randomly by setThemeAtRandom
              and is an array of >= 4 colors */}
             <div data-theme={getThemeColorPalette()[1]}>
-              <Button onClick={reset} icon={<Delete />}>
+              <Button onClick={reset} icon={<DeleteIcon />}>
                 Reset
               </Button>
             </div>

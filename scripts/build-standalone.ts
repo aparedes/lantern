@@ -266,11 +266,36 @@ run(
   "codesign verification of the binary failed"
 );
 
-// --- Step 6: report ---------------------------------------------------------
+// --- Step 6: stable `lantern` symlink ---------------------------------------
+
+// The real file keeps its platform suffix so it can be attached to a release (and so a future
+// second target does not collide with it); the symlink next to it is the short path to run
+// locally, and stays valid across rebuilds.
+const LINK_NAME = "lantern";
+const linkPath = path.join(path.dirname(options.outfile), LINK_NAME);
+const linkTarget = path.basename(options.outfile);
+
+let link: string | undefined;
+if (linkTarget !== LINK_NAME) {
+  // `fs.existsSync` follows the link, so a symlink left over from a removed build reads as
+  // missing — `lstatSync` is what tells us whether the path is occupied at all.
+  try {
+    fs.lstatSync(linkPath);
+    fs.rmSync(linkPath, { recursive: true, force: true });
+  } catch {
+    // Nothing there yet.
+  }
+  // Relative, so moving the folder keeps the pair intact.
+  fs.symlinkSync(linkTarget, linkPath);
+  link = linkPath;
+}
+
+// --- Step 7: report ---------------------------------------------------------
 
 const sizeMb = fs.statSync(options.outfile).size / 1024 / 1024;
 const fileOutput = Bun.spawnSync(["file", options.outfile]).stdout.toString().trim();
 
 console.log(`\n✅ Built ${path.relative(REPO_ROOT, options.outfile)}`);
+if (link) console.log(`   link: ${path.relative(REPO_ROOT, link)} -> ${linkTarget}`);
 console.log(`   size: ${sizeMb.toFixed(1)} MB`);
 console.log(`   file: ${fileOutput}`);

@@ -8,7 +8,8 @@
     { "path": "../../platforms/profiler" },
     { "path": "../../core/shell" },
     { "path": "../../core/logger" },
-    { "path": "../../core/cli-core" }
+    { "path": "../../core/cli-core" },
+    { "path": "../../core/types" }
   ],
   "include": ["src"]
 }

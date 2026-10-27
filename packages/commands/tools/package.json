@@ -13,6 +13,7 @@
     "@lantern/logger": "^0.3.3",
     "@lantern/profiler": "^0.10.12",
     "@lantern/shell": "^0.2.1",
+    "@lantern/types": "^0.9.0",
     "commander": "^15.0.0"
   }
 }

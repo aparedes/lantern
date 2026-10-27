@@ -3,6 +3,7 @@ import { registerSummarizeCommand } from "@lantern/analyze";
 import { registerMeasureCommand } from "@lantern/measure/dist/server/command";
 import { registerTestCommand } from "@lantern/e2e";
 import { registerToolsCommand } from "@lantern/tools/dist/command";
+import { registerDoctorCommand } from "@lantern/tools/dist/doctor";
 import { registerReportCommand } from "@lantern/web-reporter/dist/command";
 import { version } from "../package.json";
 
@@ -13,5 +14,6 @@ export const createProgram = () => {
   registerToolsCommand(program);
   registerReportCommand(program);
   registerSummarizeCommand(program);
+  registerDoctorCommand(program);
   return program;
 };

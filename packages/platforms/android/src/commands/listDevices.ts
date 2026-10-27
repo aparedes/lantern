@@ -20,6 +20,21 @@ export const parseAdbDevices = (output: string): DeviceInfo[] =>
       };
     });
 
+export interface AdbDeviceState {
+  id: string;
+  /** `device` when usable; else e.g. `unauthorized` (USB debugging not accepted) or `offline`. */
+  state: string;
+}
+
+/** Parses `adb devices`: every row with its state, unusable devices included. */
+export const parseAdbDeviceStates = (output: string): AdbDeviceState[] =>
+  output
+    .split(/\r\n|\n|\r/)
+    .slice(1)
+    .map((line) => line.trim().split(/\s+/))
+    .filter(([id, state]) => id && state)
+    .map(([id, state]) => ({ id, state }));
+
 /** Every device adb can see; `[]` when adb is missing or fails. Never throws. */
 export const listAndroidDevices = (): DeviceInfo[] => {
   try {

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll, spyOn, mock } from "bun:test";
-import { listAndroidDevices, parseAdbDevices } from "../listDevices";
+import { listAndroidDevices, parseAdbDeviceStates, parseAdbDevices } from "../listDevices";
 import * as adbModule from "../adb";
 
 const adbSpy = spyOn(adbModule, "adb");
@@ -56,3 +56,21 @@ R58M12345Z             device usb:1-1 model:Pixel_7 device:d2q transport_id:2
 });
 
 afterAll(() => mock.restore());
+
+describe("parseAdbDeviceStates", () => {
+  it("keeps every device with its state, unusable ones included", () => {
+    expect(
+      parseAdbDeviceStates(
+        "List of devices attached\nR58M12345Z\tdevice\nemulator-5554\toffline\nABC\tunauthorized\n\n"
+      )
+    ).toEqual([
+      { id: "R58M12345Z", state: "device" },
+      { id: "emulator-5554", state: "offline" },
+      { id: "ABC", state: "unauthorized" },
+    ]);
+  });
+
+  it("returns nothing when no device is attached", () => {
+    expect(parseAdbDeviceStates("List of devices attached\n\n")).toEqual([]);
+  });
+});

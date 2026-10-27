@@ -37,6 +37,9 @@ const defaultBinaryPath = path.join(
 // LANTERN_BINARY_PATH on Android
 const getBinaryPath = () => process.env.LANTERN_IOS_BINARY_PATH || defaultBinaryPath;
 
+/** The host-side iOS profiler binary `IOSProfiler` spawns (macOS only). */
+export const getIOSProfilerBinaryPath = getBinaryPath;
+
 /** One entry of the binary's `devices` result. */
 interface BinaryDevice {
   udid: string;

@@ -39,6 +39,23 @@ the app, plus shareable HTML reports for automated test runs.
   lantern summarize results-folder --json
   ```
 
+- `lantern doctor`: check that this host and the connected devices are ready
+  to profile (adb, Android API level and ABI, the iOS profiler binary, iOS
+  devices). Every problem comes with a fix; exits with 3 when no device can be
+  profiled.
+
+  ```bash
+  lantern doctor
+  ```
+
+- `lantern tools list_devices` / `lantern tools list_apps`: list the connected
+  devices of both platforms, or the apps installed on the selected device.
+
+  ```bash
+  lantern tools list_devices --json
+  lantern tools list_apps --platform ios
+  ```
+
 - `lantern tools get_bundle_id`: retrieve the bundle id of the app currently
   running on the device.
 
@@ -57,8 +74,8 @@ AI agents can drive Lantern without parsing human-readable text:
 - **stdout carries only the command's result.** Logs, and the output of the
   commands `lantern test` runs (`--testCommand`, `--beforeEachCommand`...), go
   to stderr.
-- **`--json`** (on `test`, `summarize`, `report` and `tools get_bundle_id`)
-  prints the result as a single JSON object on stdout, e.g.
+- **`--json`** (on `test`, `summarize`, `report`, `doctor` and the `tools`
+  commands) prints the result as a single JSON object on stdout, e.g.
   `{"bundleId":"com.example.app"}`, `{"htmlPath":"/tmp/report.html"}` or
   `{"status":"SUCCESS","resultsPath":"results.json","summary":{…}}`. A failure
   prints `{"error":{"code":"NO_DEVICE","message":"…","details":{…}}}` instead.

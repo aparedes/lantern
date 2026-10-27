@@ -2,6 +2,7 @@ import { AndroidProfiler } from "@lantern/android";
 import { IOSProfiler } from "@lantern/ios";
 import { DeviceInfo, Platform, Profiler } from "@lantern/types";
 import { DeviceSelectionError, LanternError } from "@lantern/profiler-protocol";
+import { probeDevices } from "./probe";
 
 /** `lantern` is the self-profiler used to measure the CLI itself; not user-facing. */
 export type ProfilerPlatform = Platform | "lantern";
@@ -97,16 +98,6 @@ export const selectPlatformAndDevice = async (
   return { platform, device: await profiler.resolveDevice() };
 };
 
-/** Lists one platform's devices with a throwaway profiler, released right after. */
-const probeDevices = async (platformProfiler: Profiler): Promise<DeviceInfo[]> => {
-  try {
-    return await platformProfiler.listDevices();
-  } finally {
-    // The iOS profiler keeps a `serve` process alive otherwise
-    platformProfiler.dispose();
-  }
-};
-
 export interface PlatformProbe {
   android: () => Promise<DeviceInfo[]>;
   ios: () => Promise<DeviceInfo[]>;
@@ -161,4 +152,7 @@ export const resolvePlatform = async (
 export { waitFor } from "@lantern/android";
 export { disposeAllSessions, installSignalHandlers } from "@lantern/profiler-protocol";
 export { applyCommonOptions, registerCommonOptions } from "./cli";
+export { probeDevices } from "./probe";
+export { listAllDevices, runDoctor } from "./doctor";
+export type { CheckStatus, DoctorCheck, DoctorEnvironment, DoctorReport } from "./doctor";
 export type { CommonOptions } from "./cli";

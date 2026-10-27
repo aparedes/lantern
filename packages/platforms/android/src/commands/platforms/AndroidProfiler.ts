@@ -25,6 +25,13 @@ const defaultBinaryFolder = `${__dirname}/../../..${__dirname.includes("dist") ?
 // Allow overriding the binary folder with an environment variable
 const getBinaryFolder = () => process.env.LANTERN_BINARY_PATH || defaultBinaryFolder;
 
+/** Where the profiler binary for a device ABI is expected; it is only shipped for arm64-v8a. */
+export const getAndroidProfilerBinaryPath = (abi: string) =>
+  `${getBinaryFolder()}/${CppProfilerName}-${abi}`;
+
+/** Lantern profiles Android 7.0 (API 24) and newer. */
+export const MIN_ANDROID_SDK = 24;
+
 const STOP_APP_TIMEOUT = 5000;
 /** The profiler binary draws no frames; the value only has to exist for the report. */
 const SELF_PROFILING_REFRESH_RATE = 60;
@@ -130,7 +137,7 @@ export class AndroidProfiler implements Profiler {
   private assertSupported(serial: string): void {
     const sdkVersion = parseInt(adb(["shell", "getprop", "ro.build.version.sdk"], { serial }), 10);
 
-    if (sdkVersion < 24) {
+    if (sdkVersion < MIN_ANDROID_SDK) {
       throw new LanternError(
         "UNSUPPORTED_DEVICE",
         `Your Android version (sdk API level ${sdkVersion}) is not supported. Supported versions > 23.`
@@ -142,7 +149,7 @@ export class AndroidProfiler implements Profiler {
     const abi = getAbi(serial);
     Logger.info(`Installing profiler for ${abi} architecture`);
 
-    const binaryPath = `${getBinaryFolder()}/${CppProfilerName}-${abi}`;
+    const binaryPath = getAndroidProfilerBinaryPath(abi);
     if (!fs.existsSync(binaryPath)) {
       throw new LanternError(
         "UNSUPPORTED_DEVICE",

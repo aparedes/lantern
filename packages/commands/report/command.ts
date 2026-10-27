@@ -4,7 +4,6 @@ import path from "path";
 import { Command, Option } from "commander";
 import { Logger } from "@lantern/logger";
 import { printResult, registerJsonOption } from "@lantern/cli-core";
-import { LanternError } from "@lantern/profiler-protocol";
 import { open } from "@lantern/shell";
 import { parseDuration, parseSkip } from "./optionParsers";
 import { getReportFileName, writeReport } from "./writeReport";
@@ -53,17 +52,6 @@ lantern report results1.json --no-open --json
       jsonPaths: string[],
       options: { outputDir?: string; duration?: number; skip?: number; open: boolean }
     ) => {
-      const missingPaths = jsonPaths.filter((jsonPath) => !fs.existsSync(jsonPath));
-      if (missingPaths.length > 0) {
-        throw new LanternError(
-          "INVALID_ARGUMENT",
-          `No such file or folder: ${missingPaths.join(", ")}`,
-          {
-            details: { missingPaths },
-          }
-        );
-      }
-
       const outputDir = options.outputDir || os.tmpdir();
       // With `-o` the user owns the folder and `report.html` is overwritten as before. Otherwise
       // reports share the temp dir, so give each a name that does not clobber a previous one.

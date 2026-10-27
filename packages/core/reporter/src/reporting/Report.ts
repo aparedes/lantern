@@ -121,6 +121,11 @@ export class Report {
     });
   }
 
+  /** One summary per reported iteration (see `reportedIterations`), unrounded. */
+  public getIterationSummaries(): readonly IterationSummary[] {
+    return this.iterationSummaries;
+  }
+
   public getAveragedResult() {
     return this.averagedResult;
   }

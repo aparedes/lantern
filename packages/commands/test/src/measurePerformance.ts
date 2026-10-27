@@ -22,6 +22,7 @@ export const measurePerformance = async (
 
   return {
     measures: tester.measures,
+    /** Writes the results file and returns the result it contains. */
     writeResults: () => tester.writeResults(),
   };
 };

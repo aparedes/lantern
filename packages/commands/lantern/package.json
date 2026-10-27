@@ -7,6 +7,7 @@
     "lantern": "dist/bin.js"
   },
   "dependencies": {
+    "@lantern/analyze": "^0.1.0",
     "@lantern/cli-core": "^0.1.0",
     "@lantern/e2e": "^0.11.4",
     "@lantern/logger": "^0.3.3",

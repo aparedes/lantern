@@ -22,6 +22,17 @@
         "@lantern/types": "^0.9.0",
       },
     },
+    "packages/commands/analyze": {
+      "name": "@lantern/analyze",
+      "version": "0.1.0",
+      "dependencies": {
+        "@lantern/cli-core": "^0.1.0",
+        "@lantern/profiler-protocol": "^0.1.0",
+        "@lantern/reporter": "^0.10.0",
+        "@lantern/types": "^0.9.0",
+        "commander": "^15.0.0",
+      },
+    },
     "packages/commands/lantern": {
       "name": "@lantern/cli",
       "version": "0.18.0",
@@ -29,6 +40,7 @@
         "lantern": "dist/bin.js",
       },
       "dependencies": {
+        "@lantern/analyze": "^0.1.0",
         "@lantern/cli-core": "^0.1.0",
         "@lantern/e2e": "^0.11.4",
         "@lantern/logger": "^0.3.3",
@@ -81,9 +93,9 @@
         "lantern-report": "./dist/openReport.js",
       },
       "dependencies": {
+        "@lantern/analyze": "^0.1.0",
         "@lantern/cli-core": "^0.1.0",
         "@lantern/logger": "^0.3.3",
-        "@lantern/profiler-protocol": "^0.1.0",
         "@lantern/shell": "^0.2.1",
         "@lantern/types": "^0.9.0",
         "commander": "^15.0.0",
@@ -298,6 +310,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.6.0", "", {}, "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@lantern/analyze": ["@lantern/analyze@workspace:packages/commands/analyze"],
 
     "@lantern/android": ["@lantern/android@workspace:packages/platforms/android"],
 

@@ -1,6 +1,7 @@
 import fs from "fs";
 import { POLLING_INTERVAL, TestCaseResult } from "@lantern/types";
 import path from "path";
+import { readResults } from "@lantern/analyze";
 
 const assertTimeIntervalMultiple = (n: number) => {
   if (n % POLLING_INTERVAL !== 0) {
@@ -47,27 +48,9 @@ const copyVideoFiles = (results: TestCaseResult[], outputDir: string) => {
   });
 };
 
-export const getResultsFromPaths = (jsonPaths: string[]): TestCaseResult[] => {
-  const getJsonPaths = () => {
-    return jsonPaths
-      .map((path) => {
-        // statSync follows symlinks, so a symlinked results folder works too
-        const isDirectory = fs.statSync(path).isDirectory();
-
-        if (isDirectory) {
-          return fs
-            .readdirSync(path)
-            .filter((file) => file.endsWith(".json"))
-            .map((file) => `${path}/${file}`);
-        } else {
-          return path;
-        }
-      })
-      .flat();
-  };
-
-  return getJsonPaths().map((path) => JSON.parse(fs.readFileSync(path, "utf8")));
-};
+/** Results files and folders → their results; see `readResults` for the checks. */
+export const getResultsFromPaths = (jsonPaths: string[]): TestCaseResult[] =>
+  readResults(jsonPaths).map(({ result }) => result);
 
 const getAssetsDir = () => process.env.LANTERN_REPORT_ASSETS_PATH || __dirname;
 

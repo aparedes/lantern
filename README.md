@@ -30,6 +30,15 @@ the app, plus shareable HTML reports for automated test runs.
   lantern report results1.json results2.json -o output-dir
   ```
 
+- `lantern summarize`: print the key numbers of one or more results files —
+  score, CPU, FPS, RAM, high CPU time and busiest threads, with their spread
+  across iterations. The numbers are the ones the HTML report shows.
+
+  ```bash
+  lantern summarize results.json
+  lantern summarize results-folder --json
+  ```
+
 - `lantern tools get_bundle_id`: retrieve the bundle id of the app currently
   running on the device.
 
@@ -48,11 +57,21 @@ AI agents can drive Lantern without parsing human-readable text:
 - **stdout carries only the command's result.** Logs, and the output of the
   commands `lantern test` runs (`--testCommand`, `--beforeEachCommand`...), go
   to stderr.
-- **`--json`** (on `test`, `report` and `tools get_bundle_id`) prints the
-  result as a single JSON object on stdout, e.g.
+- **`--json`** (on `test`, `summarize`, `report` and `tools get_bundle_id`)
+  prints the result as a single JSON object on stdout, e.g.
   `{"bundleId":"com.example.app"}`, `{"htmlPath":"/tmp/report.html"}` or
-  `{"status":"SUCCESS","resultsPath":"results.json"}`. A failure prints
-  `{"error":{"code":"NO_DEVICE","message":"…","details":{…}}}` instead.
+  `{"status":"SUCCESS","resultsPath":"results.json","summary":{…}}`. A failure
+  prints `{"error":{"code":"NO_DEVICE","message":"…","details":{…}}}` instead.
+- **Read summaries, not results files.** A results file holds every sample
+  (hundreds of KB); `lantern summarize --json` (and the `summary` of
+  `lantern test --json`) is about 1 KB, carries a `schemaVersion`, and lists
+  `caveats` worth knowing when reading the numbers (no refresh rate recorded,
+  failed iterations, iOS has no per-thread data...). Its shape is
+  `ResultSummary` in
+  [`packages/core/reporter/src/reporting/summary.ts`](./packages/core/reporter/src/reporting/summary.ts).
+- Results files now also record the `platform`, the `device` and its refresh
+  rate (`specs.refreshRate`), which FPS is scored against (60 Hz is assumed
+  for older files).
 - **Exit codes** tell failures apart:
 
   | Code          | Meaning                                                                                    |

@@ -32,12 +32,25 @@ export interface TestCaseIterationResult {
 
 export type TestCaseResultStatus = "SUCCESS" | "FAILURE"; // Todo: add "SUCCESS_WITH_SOME_ITERATIONS_FAILED"
 
+/** The device a result was measured on, as written in results files. */
+export interface ResultDevice {
+  id: string;
+  name: string;
+  /** iOS model identifier (e.g. "iPhone16,1"), when known. */
+  model?: string;
+}
+
 export interface TestCaseResult {
   name: string;
   score?: number;
   status: TestCaseResultStatus;
   iterations: TestCaseIterationResult[];
+  /** Missing from results written before Lantern recorded it, and when it could not be detected. */
   specs?: DeviceSpecs;
+  /** Missing from results written before Lantern recorded it. */
+  platform?: Platform;
+  /** Missing from results written before Lantern recorded it, and when it could not be detected. */
+  device?: ResultDevice;
 }
 
 export interface AveragedTestCaseResult {
@@ -48,6 +61,8 @@ export interface AveragedTestCaseResult {
   average: TestCaseIterationResult;
   averageHighCpuUsage: { [processName: string]: number };
   specs?: DeviceSpecs;
+  platform?: Platform;
+  device?: ResultDevice;
 }
 
 // Shouldn't really be here but @lantern/types is imported by everyone and doesn't contain any logic

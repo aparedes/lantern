@@ -24,6 +24,7 @@
     { "path": "./packages/commands/tools" },
     { "path": "./packages/core/reporter" },
     { "path": "./packages/core/web-reporter-ui" },
+    { "path": "./packages/commands/analyze" },
     { "path": "./packages/commands/report" },
     { "path": "./packages/commands/measure" },
     { "path": "./packages/commands/lantern" },

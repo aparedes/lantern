@@ -22,6 +22,12 @@ const mockPerformancePolling = new PerformancePollingMock();
 
 spyOn(profiler, "installProfilerOnDevice").mockImplementation(async () => undefined);
 spyOn(profiler, "startSession").mockImplementation(mockPerformancePolling.start);
+spyOn(profiler, "resolveDevice").mockImplementation(async () => ({
+  id: "R58M12345Z",
+  name: "Pixel 7",
+  platform: "android",
+}));
+spyOn(profiler, "detectDeviceRefreshRate").mockImplementation(async () => 120);
 
 Logger.setLogLevel(LogLevel.SILENT);
 setDefaultTimeout(20000);
@@ -39,6 +45,32 @@ afterAll(() => mock.restore());
 const runTest = jest.fn();
 
 describe("measurePerformance", () => {
+  it("still writes the results when the device or its refresh rate cannot be detected", async () => {
+    const PATH = `${os.tmpdir()}/results-without-metadata.json`;
+    const resolveDevice = spyOn(profiler, "resolveDevice").mockRejectedValueOnce(
+      new Error("adb gone")
+    );
+    const refreshRate = spyOn(profiler, "detectDeviceRefreshRate").mockRejectedValueOnce(
+      new Error("dumpsys failed")
+    );
+
+    const { writeResults } = await measurePerformance(
+      "com.example",
+      { run: jest.fn() },
+      { iterationCount: 1, resultsFileOptions: { path: PATH } }
+    );
+    const written = writeResults();
+
+    expect(written.status).toBe("SUCCESS");
+    expect(written.platform).toBe("android");
+    expect(written.device).toBeUndefined();
+    expect(written.specs).toBeUndefined();
+    expect(JSON.parse(fs.readFileSync(PATH, "utf8"))).toEqual(JSON.parse(JSON.stringify(written)));
+    fs.rmSync(PATH);
+    expect(resolveDevice).toHaveBeenCalled();
+    expect(refreshRate).toHaveBeenCalled();
+  });
+
   it("adds a score if a getScore function is passed", async () => {
     const PATH = `${os.tmpdir()}/results.json`;
     const TITLE = "TITLE";
@@ -66,6 +98,10 @@ describe("measurePerformance", () => {
 
     expect(JSON.parse(fs.readFileSync(PATH).toString())).toMatchInlineSnapshot(`
       {
+        "device": {
+          "id": "R58M12345Z",
+          "name": "Pixel 7",
+        },
         "iterations": [
           {
             "measures": [
@@ -117,7 +153,11 @@ describe("measurePerformance", () => {
           },
         ],
         "name": "TITLE",
+        "platform": "android",
         "score": 3,
+        "specs": {
+          "refreshRate": 120,
+        },
         "status": "SUCCESS",
       }
     `);

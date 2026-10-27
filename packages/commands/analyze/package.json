@@ -1,0 +1,14 @@
+{
+  "name": "@lantern/analyze",
+  "version": "0.1.0",
+  "description": "Headless analysis of lantern results files: summarize (and soon compare)",
+  "main": "dist/index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@lantern/cli-core": "^0.1.0",
+    "@lantern/profiler-protocol": "^0.1.0",
+    "@lantern/reporter": "^0.10.0",
+    "@lantern/types": "^0.9.0",
+    "commander": "^15.0.0"
+  }
+}

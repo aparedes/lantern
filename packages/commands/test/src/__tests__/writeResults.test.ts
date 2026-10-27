@@ -68,6 +68,7 @@ describe("writeResults", () => {
         expected: {
           filePath: `${process.cwd()}/results_1686650793058.json`,
           overrideScore: undefined,
+          metadata: {},
           title: "Results",
         },
       },
@@ -80,6 +81,7 @@ describe("writeResults", () => {
         expected: {
           filePath: `${process.cwd()}/awesome_title_1686650793058.json`,
           overrideScore: undefined,
+          metadata: {},
           title: "Awesome title",
         },
       },
@@ -93,6 +95,7 @@ describe("writeResults", () => {
         expected: {
           filePath: `/tmp/lantern_test.json`,
           overrideScore: undefined,
+          metadata: {},
           title: "Awesome title",
         },
       },
@@ -105,6 +108,7 @@ describe("writeResults", () => {
         expected: {
           filePath: `/tmp/lantern_test.json`,
           overrideScore: undefined,
+          metadata: {},
           title: "Results",
         },
       },

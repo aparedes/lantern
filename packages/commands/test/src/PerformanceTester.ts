@@ -1,10 +1,10 @@
 import { Logger } from "@lantern/logger";
 import { TestCaseIterationResult } from "@lantern/types";
-import { profiler } from "@lantern/profiler";
+import { getPlatform, profiler } from "@lantern/profiler";
 import { LanternError, toLanternError } from "@lantern/profiler-protocol";
 import * as p from "path";
 import { Options, SingleIterationTester, TestCase } from "./SingleIterationTester";
-import { writeReport } from "./writeReport";
+import { ResultMetadata, writeReport } from "./writeReport";
 
 export type PerformanceTesterOptions = Omit<
   Options,
@@ -19,8 +19,37 @@ export type PerformanceTesterOptions = Omit<
   };
 };
 
+/**
+ * The platform, device and refresh rate of the run. Best effort: the score falls back to 60 Hz
+ * without a refresh rate, which is no reason to fail the run.
+ */
+const collectMetadata = async (): Promise<ResultMetadata> => {
+  const metadata: ResultMetadata = { platform: getPlatform() };
+
+  try {
+    const { id, name, model } = await profiler.resolveDevice();
+    metadata.device = model === undefined ? { id, name } : { id, name, model };
+  } catch (error) {
+    Logger.debug(`Could not resolve the device: ${error instanceof Error ? error.message : error}`);
+  }
+
+  try {
+    metadata.specs = { refreshRate: await profiler.detectDeviceRefreshRate() };
+  } catch (error) {
+    Logger.warn(
+      `Could not detect the refresh rate, FPS will be scored against 60 Hz: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
+
+  return metadata;
+};
+
 export class PerformanceTester {
   public measures: TestCaseIterationResult[] = [];
+  /** Filled by `iterate()`, written to the results file next to the iterations. */
+  public metadata: ResultMetadata = {};
   private retryCount = 0;
   options: Options;
 
@@ -54,6 +83,7 @@ export class PerformanceTester {
   async iterate(): Promise<void> {
     // Important to ensure that the profiler is installed before we run the test!
     await profiler.installProfilerOnDevice();
+    this.metadata = await collectMetadata();
 
     let currentIterationIndex = 0;
     this.measures = [];
@@ -93,10 +123,11 @@ export class PerformanceTester {
 
   writeResults() {
     const { path, title } = this.options.resultsFileOptions;
-    writeReport(this.measures, {
+    return writeReport(this.measures, {
       filePath: path,
       title,
       overrideScore: this.testCase.getScore,
+      metadata: this.metadata,
     });
   }
 

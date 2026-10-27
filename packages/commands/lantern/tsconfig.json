@@ -10,7 +10,8 @@
     { "path": "../test" },
     { "path": "../measure" },
     { "path": "../tools" },
-    { "path": "../report" }
+    { "path": "../report" },
+    { "path": "../analyze" }
   ],
   "include": ["src"],
   "exclude": ["src/standalone.ts", "src/embedded.generated.ts"]

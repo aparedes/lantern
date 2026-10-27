@@ -11,6 +11,7 @@ import { PerformanceTester } from "./PerformanceTester";
 import { Logger } from "@lantern/logger";
 import { printResult, registerJsonOption } from "@lantern/cli-core";
 import { LanternError, toLanternError } from "@lantern/profiler-protocol";
+import { formatResultSummary, summarizeResult } from "@lantern/reporter";
 import {
   CommonOptions,
   applyCommonOptions,
@@ -84,6 +85,10 @@ lantern test --bundleId com.example.app --testCommand "maestro test flow.yml"
       "--recordSize <recordSize>",
       'Set the video size, e.g. "1280x720".  Default is the device\'s main display resolution (if supported), 1280x720 if not.  For best results, use a size supported by the AVC encoder.'
     )
+    .option(
+      "--summary",
+      "Print the key numbers (score, CPU, FPS, RAM...) once done; always part of the --json output"
+    )
     .addOption(
       new Option(
         "--skipRestart",
@@ -111,6 +116,7 @@ const runTest = async ({
   recordSize,
   recordBitRate,
   skipRestart,
+  summary,
   ...commonOptions
 }: CommonOptions & {
   duration?: number;
@@ -127,6 +133,7 @@ const runTest = async ({
   recordSize?: string;
   recordBitRate?: number;
   skipRestart?: boolean;
+  summary?: boolean;
 }) => {
   const { platform: resolvedPlatform } = await applyCommonOptions(commonOptions);
 
@@ -170,9 +177,10 @@ const runTest = async ({
 
   const resultsPath = performanceTester.options.resultsFileOptions.path;
 
+  let result;
   try {
     await performanceTester.iterate();
-    performanceTester.writeResults();
+    result = performanceTester.writeResults();
     // The iOS profiler keeps a `serve` process alive; release it so the CLI can exit
     profiler.dispose();
   } catch (error) {
@@ -204,5 +212,8 @@ const runTest = async ({
     );
   }
 
-  printResult({ status: "SUCCESS", resultsPath });
+  const resultSummary = summarizeResult(result);
+  printResult({ status: result.status, resultsPath, summary: resultSummary }, () => {
+    if (summary) console.log(formatResultSummary(resultSummary));
+  });
 };

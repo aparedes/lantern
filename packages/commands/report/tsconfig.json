@@ -6,7 +6,7 @@
   "references": [
     { "path": "../../core/cli-core" },
     { "path": "../../core/logger" },
-    { "path": "../../core/profiler-protocol" },
+    { "path": "../analyze" },
     { "path": "../../core/shell" },
     { "path": "../../core/types" },
     { "path": "../../core/web-reporter-ui" }

@@ -24,20 +24,27 @@ export const getTestCaseStatus = (iterations: TestCaseIterationResult[]): TestCa
     : "SUCCESS";
 };
 
+/** What is known about the run's device, written next to the iterations. */
+export type ResultMetadata = Pick<TestCaseResult, "platform" | "device" | "specs">;
+
+/** Writes the results file and returns the result it contains. */
 export const writeReport = (
   measures: TestCaseIterationResult[],
   {
     filePath,
     title,
     overrideScore,
+    metadata = {},
   }: {
     filePath: string;
     title: string;
     overrideScore?: (result: AveragedTestCaseResult) => number;
+    metadata?: ResultMetadata;
   }
-) => {
+): TestCaseResult => {
   const testCase: TestCaseResult = {
     name: title,
+    ...metadata,
     iterations: measures,
     status: getTestCaseStatus(measures),
   };
@@ -60,4 +67,6 @@ To open the web report, run:
 
 lantern report ${filePath}`
   );
+
+  return testCase;
 };

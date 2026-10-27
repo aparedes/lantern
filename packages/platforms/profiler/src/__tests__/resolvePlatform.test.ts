@@ -42,6 +42,9 @@ describe("resolvePlatform", () => {
     await expect(resolvePlatform("windows", probe([androidDevice], []))).rejects.toThrow(
       PlatformResolutionError
     );
+    await expect(resolvePlatform("windows", probe([androidDevice], []))).rejects.toMatchObject({
+      code: "INVALID_ARGUMENT",
+    });
   });
 
   it("falls back to the PLATFORM env var", async () => {
@@ -62,10 +65,16 @@ describe("resolvePlatform", () => {
     await expect(resolvePlatform(undefined, probe([androidDevice], [iosDevice]))).rejects.toThrow(
       /--platform/
     );
+    await expect(
+      resolvePlatform(undefined, probe([androidDevice], [iosDevice]))
+    ).rejects.toMatchObject({ code: "AMBIGUOUS_PLATFORM" });
   });
 
   it("asks the user to connect a device when none is found", async () => {
     await expect(resolvePlatform(undefined, probe([], []))).rejects.toThrow(/No device found/);
+    await expect(resolvePlatform(undefined, probe([], []))).rejects.toMatchObject({
+      code: "NO_DEVICE",
+    });
   });
 
   it("releases the throwaway profilers it probes with", async () => {

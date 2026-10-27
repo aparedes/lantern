@@ -8,7 +8,7 @@ import {
   ProfilingSession,
   StartSessionOptions,
 } from "@lantern/types";
-import { selectDevice } from "@lantern/profiler-protocol";
+import { LanternError, selectDevice } from "@lantern/profiler-protocol";
 import { adb } from "../adb";
 import { getAbi } from "../getAbi";
 import { detectCurrentAppBundleId } from "../detectCurrentAppBundleId";
@@ -131,7 +131,8 @@ export class AndroidProfiler implements Profiler {
     const sdkVersion = parseInt(adb(["shell", "getprop", "ro.build.version.sdk"], { serial }), 10);
 
     if (sdkVersion < 24) {
-      throw new Error(
+      throw new LanternError(
+        "UNSUPPORTED_DEVICE",
         `Your Android version (sdk API level ${sdkVersion}) is not supported. Supported versions > 23.`
       );
     }
@@ -143,7 +144,8 @@ export class AndroidProfiler implements Profiler {
 
     const binaryPath = `${getBinaryFolder()}/${CppProfilerName}-${abi}`;
     if (!fs.existsSync(binaryPath)) {
-      throw new Error(
+      throw new LanternError(
+        "UNSUPPORTED_DEVICE",
         `Unsupported device ABI "${abi}": no profiler binary is shipped for it (supported: arm64-v8a)`
       );
     }

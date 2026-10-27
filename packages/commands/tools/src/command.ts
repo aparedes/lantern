@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { processVideoFile } from "@lantern/shell";
 import { Logger } from "@lantern/logger";
+import { printResult, registerJsonOption } from "@lantern/cli-core";
 import {
   CommonOptions,
   applyCommonOptions,
@@ -12,15 +13,19 @@ import fs from "fs";
 export const registerToolsCommand = (program: Command) => {
   const toolsCommand = program.command("tools").description("Utility tools related to Lantern");
 
-  registerCommonOptions(
-    toolsCommand
-      .command("get_bundle_id")
-      .description("Retrieves the bundle id of the app currently running on the device")
+  registerJsonOption(
+    registerCommonOptions(
+      toolsCommand
+        .command("get_bundle_id")
+        .description("Retrieves the bundle id of the app currently running on the device")
+    )
   ).action(async (options: CommonOptions) => {
     await applyCommonOptions(options);
 
     try {
-      console.log(await profiler.detectCurrentBundleId());
+      printResult({ bundleId: await profiler.detectCurrentBundleId() }, ({ bundleId }) =>
+        console.log(bundleId)
+      );
     } finally {
       // The iOS profiler keeps a `serve` process alive; release it so the CLI can exit
       profiler.dispose();

@@ -6,6 +6,7 @@
   },
   "references": [
     { "path": "../test" },
+    { "path": "../../core/cli-core" },
     { "path": "../../core/logger" },
     { "path": "../../platforms/profiler" },
     { "path": "../../core/shell" },

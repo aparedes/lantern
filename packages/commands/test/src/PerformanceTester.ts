@@ -1,6 +1,7 @@
 import { Logger } from "@lantern/logger";
 import { TestCaseIterationResult } from "@lantern/types";
 import { profiler } from "@lantern/profiler";
+import { LanternError, toLanternError } from "@lantern/profiler-protocol";
 import * as p from "path";
 import { Options, SingleIterationTester, TestCase } from "./SingleIterationTester";
 import { writeReport } from "./writeReport";
@@ -75,7 +76,7 @@ export class PerformanceTester {
         currentIterationIndex++;
       } catch (error) {
         this.logFailedIteration(currentIterationIndex, error);
-        this.checkRetryIsPossible(singleIterationTester);
+        this.checkRetryIsPossible(singleIterationTester, error);
       } finally {
         const currentTestCaseIterationResult =
           singleIterationTester.getCurrentTestCaseIterationResult();
@@ -99,10 +100,26 @@ export class PerformanceTester {
     });
   }
 
-  private checkRetryIsPossible(singleIterationTester: SingleIterationTester) {
+  /**
+   * Throws once the retries are exhausted. The error keeps the failed iteration's code and
+   * cause, so that "max retries" never hides why the iterations failed.
+   */
+  private checkRetryIsPossible(singleIterationTester: SingleIterationTester, error: unknown) {
     this.retryCount++;
     if (this.retryCount > this.options.maxRetries) {
-      throw new Error("Max number of retries reached.");
+      const cause = toLanternError(error);
+      throw new LanternError(
+        cause.code,
+        `Max number of retries reached. Last failure: ${cause.message}`,
+        {
+          details: {
+            ...cause.details,
+            retries: this.options.maxRetries,
+            failedIterations: this.retryCount,
+          },
+          cause,
+        }
+      );
     }
     singleIterationTester.setIsRetry(true);
     Logger.error(

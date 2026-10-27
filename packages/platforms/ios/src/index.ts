@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { Logger } from "@lantern/logger";
 import {
+  LanternError,
   ProfilerLine,
   ProfilingSessionBase,
   StatusLine,
@@ -298,12 +299,14 @@ export class IOSProfiler implements Profiler {
     if (running.length === 1) return running[0].bundleId;
 
     if (running.length === 0) {
-      throw new Error(
+      throw new LanternError(
+        "NO_FOREGROUND_APP",
         "No app is running on the iOS device: open the app you want to measure, or pick it from the list"
       );
     }
 
-    throw new Error(
+    throw new LanternError(
+      "AMBIGUOUS_APP",
       `Several apps are running on the iOS device (${running
         .map((app) => app.bundleId)
         .join(", ")}): pick one from the list`
@@ -346,7 +349,8 @@ export class IOSProfiler implements Profiler {
   async installProfilerOnDevice(): Promise<void> {
     const binaryPath = getBinaryPath();
     if (!process.env.LANTERN_IOS_BINARY_PATH && !fs.existsSync(binaryPath)) {
-      throw new Error(
+      throw new LanternError(
+        "MISSING_BINARY",
         `${BINARY_NAME} not found at ${binaryPath}. Build it with packages/platforms/ios/rust-profiler/build_macos.sh (macOS only) or set LANTERN_IOS_BINARY_PATH.`
       );
     }

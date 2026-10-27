@@ -16,6 +16,7 @@ import { measurePerformance, PerformanceMeasurer } from "..";
 import { PerformancePollingMock } from "../utils/test/PerformancePollingMock";
 import { Logger, LogLevel } from "@lantern/logger";
 import { profiler } from "@lantern/profiler";
+import { LanternError } from "@lantern/profiler-protocol";
 
 const mockPerformancePolling = new PerformancePollingMock();
 
@@ -190,7 +191,32 @@ describe("measurePerformance", () => {
           maxRetries: MAX_RETRIES,
         }
       )
-    ).rejects.toThrowError("Max number of retries reached.");
+    ).rejects.toThrowError("Max number of retries reached. Last failure: Failure");
+  });
+
+  it("keeps the failed iteration's code and cause when the retries are exhausted", async () => {
+    runTest.mockImplementationOnce(async () => {
+      throw new LanternError(
+        "TEST_COMMAND_FAILED",
+        'Error when running "maestro": exited with code 1',
+        {
+          details: { command: "maestro", exitCode: 1 },
+        }
+      );
+    });
+
+    const error = await measurePerformance(
+      "com.example",
+      { run: runTest },
+      { maxRetries: 0 }
+    ).catch((failure: unknown) => failure);
+
+    expect(error).toBeInstanceOf(LanternError);
+    expect(error).toMatchObject({
+      code: "TEST_COMMAND_FAILED",
+      details: { command: "maestro", exitCode: 1, retries: 0, failedIterations: 1 },
+    });
+    expect((error as LanternError).cause).toMatchObject({ code: "TEST_COMMAND_FAILED" });
   });
 
   it("throws an error if no measures are returned", async () => {
@@ -242,6 +268,10 @@ describe("PerformanceMeasurer", () => {
     await expect(measurer.waitUntilMeasuring()).rejects.toThrowError(
       'The profiler did not start measuring within 100ms, is "com.example" running on the device?'
     );
+    await expect(measurer.waitUntilMeasuring()).rejects.toMatchObject({
+      code: "PROFILER_START_TIMEOUT",
+      details: { bundleId: "com.example", timeoutMs: 100 },
+    });
   });
 
   it("resolves a pending waitUntilMeasuring() when force stopped", async () => {
@@ -286,6 +316,7 @@ describe("PerformanceMeasurer", () => {
     await expect(running).rejects.toThrowError(
       "The profiler stopped before it started measuring: lantern-android-profiler exited unexpectedly (code 1)"
     );
+    await expect(running).rejects.toMatchObject({ code: "PROFILER_EXITED" });
   });
 
   it("runWhileMeasuring() returns what the task returns once the profiler measures", async () => {
@@ -306,8 +337,10 @@ describe("PerformanceMeasurer", () => {
 
     await measurer.start();
 
-    await expect(measurer.stop()).rejects.toThrowError(
+    const stopping = measurer.stop();
+    await expect(stopping).rejects.toThrowError(
       'No measures were received from the profiler for "com.example"'
     );
+    await expect(stopping).rejects.toMatchObject({ code: "NO_MEASURES" });
   });
 });

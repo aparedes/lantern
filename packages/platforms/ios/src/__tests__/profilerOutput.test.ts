@@ -120,6 +120,7 @@ describe("IOSProfiler devices", () => {
     await answerDevices(child, [OTHER_UDID, UDID]);
     await expect(ambiguous).rejects.toThrow(
       new DeviceSelectionError(
+        "AMBIGUOUS_DEVICE",
         `Several iOS devices are connected (${OTHER_UDID}, ${UDID}): pass --device <udid>`
       )
     );

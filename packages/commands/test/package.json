@@ -10,6 +10,7 @@
     "test": "tsc"
   },
   "dependencies": {
+    "@lantern/cli-core": "^0.1.0",
     "@lantern/logger": "^0.3.3",
     "@lantern/profiler": "^0.10.12",
     "@lantern/profiler-protocol": "^0.1.0",

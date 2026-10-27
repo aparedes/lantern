@@ -40,6 +40,36 @@ the app, plus shareable HTML reports for automated test runs.
 Run `lantern --help` (or `lantern <command> --help`) for the full CLI
 reference.
 
+## Scripting and agents
+
+Every command follows the same output contract, so that scripts, CI jobs and
+AI agents can drive Lantern without parsing human-readable text:
+
+- **stdout carries only the command's result.** Logs, and the output of the
+  commands `lantern test` runs (`--testCommand`, `--beforeEachCommand`...), go
+  to stderr.
+- **`--json`** (on `test`, `report` and `tools get_bundle_id`) prints the
+  result as a single JSON object on stdout, e.g.
+  `{"bundleId":"com.example.app"}`, `{"htmlPath":"/tmp/report.html"}` or
+  `{"status":"SUCCESS","resultsPath":"results.json"}`. A failure prints
+  `{"error":{"code":"NO_DEVICE","message":"…","details":{…}}}` instead.
+- **Exit codes** tell failures apart:
+
+  | Code          | Meaning                                                                                    |
+  | ------------- | ------------------------------------------------------------------------------------------ |
+  | 0             | Success                                                                                    |
+  | 1             | The run failed (test command failed, app crashed, profiler gave up...) or unexpected error |
+  | 2             | Invalid usage: unknown option, missing argument, missing results file                      |
+  | 3             | Device or app setup: no / several / unknown device, unsupported device, app not running    |
+  | 4             | A requested threshold was not met                                                          |
+  | 130, 131, 143 | Interrupted by SIGINT, SIGQUIT, SIGTERM                                                    |
+
+  The error `code`s are listed in
+  [`packages/core/profiler-protocol/src/errors.ts`](./packages/core/profiler-protocol/src/errors.ts).
+
+- `lantern report` does not open a browser with `--no-open`, when stdout is
+  not a terminal, or when `CI` is set.
+
 ## Requirements
 
 - A macOS host — the standalone binary and the iOS profiler are macOS-only.

@@ -1,5 +1,6 @@
 import { Logger } from "@lantern/logger";
 import { profiler, waitFor } from "@lantern/profiler";
+import { LanternError } from "@lantern/profiler-protocol";
 import { Trace } from "./Trace";
 import {
   Measure,
@@ -96,8 +97,10 @@ export class PerformanceMeasurer {
         session.dispose();
         settle(() =>
           reject(
-            new Error(
-              `The profiler did not start measuring within ${timeout}ms, is "${this.bundleId}" running on the device?`
+            new LanternError(
+              "PROFILER_START_TIMEOUT",
+              `The profiler did not start measuring within ${timeout}ms, is "${this.bundleId}" running on the device?`,
+              { details: { bundleId: this.bundleId, timeoutMs: timeout } }
             )
           )
         );
@@ -110,7 +113,13 @@ export class PerformanceMeasurer {
         // Only relevant while we are still waiting for the first sample, a no-op afterwards
         (error: Error) =>
           settle(() =>
-            reject(new Error(`The profiler stopped before it started measuring: ${error.message}`))
+            reject(
+              new LanternError(
+                "PROFILER_EXITED",
+                `The profiler stopped before it started measuring: ${error.message}`,
+                { details: { bundleId: this.bundleId }, cause: error }
+              )
+            )
           )
       );
     });
@@ -163,8 +172,19 @@ export class PerformanceMeasurer {
       await waitFor(() => this.measures.length * POLLING_INTERVAL > duration, {
         checkInterval: POLLING_INTERVAL,
         timeout: duration * 2,
-        errorMessage:
+      }).catch((error: unknown) => {
+        throw new LanternError(
+          "NO_MEASURES",
           "We don't have enough measures for the duration of the test specified, maybe the app has crashed?",
+          {
+            details: {
+              bundleId: this.bundleId,
+              durationMs: duration,
+              measures: this.measures.length,
+            },
+            cause: error,
+          }
+        );
       });
     }
 
@@ -176,8 +196,10 @@ export class PerformanceMeasurer {
     }
 
     if (this.measures.length === 0) {
-      throw new Error(
-        `No measures were received from the profiler for "${this.bundleId}", maybe the app has crashed or was never started?`
+      throw new LanternError(
+        "NO_MEASURES",
+        `No measures were received from the profiler for "${this.bundleId}", maybe the app has crashed or was never started?`,
+        { details: { bundleId: this.bundleId } }
       );
     }
 

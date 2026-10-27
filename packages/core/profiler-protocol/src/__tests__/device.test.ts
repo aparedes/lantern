@@ -19,7 +19,10 @@ describe("selectDevice", () => {
 
   it("rejects a requested device that is not connected, naming the connected ones", () => {
     expect(() => selectDevice([pixel], { ...options, requested: "nope" })).toThrow(
-      new DeviceSelectionError('Unknown Android device "nope" (connected: R58M12345Z)')
+      new DeviceSelectionError(
+        "UNKNOWN_DEVICE",
+        'Unknown Android device "nope" (connected: R58M12345Z)'
+      )
     );
     expect(() => selectDevice([], { ...options, requested: "nope" })).toThrow(
       'Unknown Android device "nope" (no device connected)'
@@ -28,15 +31,32 @@ describe("selectDevice", () => {
 
   it("asks for a device when none is connected", () => {
     expect(() => selectDevice([], options)).toThrow(
-      new DeviceSelectionError("No Android device connected")
+      new DeviceSelectionError("NO_DEVICE", "No Android device connected")
     );
   });
 
   it("asks for --device when several are connected", () => {
     expect(() => selectDevice([pixel, emulator], { ...options, idLabel: "serial" })).toThrow(
       new DeviceSelectionError(
+        "AMBIGUOUS_DEVICE",
         "Several Android devices are connected (R58M12345Z, emulator-5554): pass --device <serial>"
       )
     );
+  });
+
+  it("tags each failure with its error code", () => {
+    const codeOf = (run: () => unknown) => {
+      try {
+        run();
+      } catch (error) {
+        return (error as DeviceSelectionError).code;
+      }
+    };
+
+    expect(codeOf(() => selectDevice([pixel], { ...options, requested: "nope" }))).toBe(
+      "UNKNOWN_DEVICE"
+    );
+    expect(codeOf(() => selectDevice([], options))).toBe("NO_DEVICE");
+    expect(codeOf(() => selectDevice([pixel, emulator], options))).toBe("AMBIGUOUS_DEVICE");
   });
 });

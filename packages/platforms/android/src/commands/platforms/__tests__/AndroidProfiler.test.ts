@@ -122,6 +122,7 @@ describe("AndroidProfiler", () => {
 
       await expect(new AndroidProfiler().resolveDevice()).rejects.toThrow(
         new DeviceSelectionError(
+          "AMBIGUOUS_DEVICE",
           `Several Android devices are connected (${OTHER_SERIAL}, ${SERIAL}): pass --device <serial>`
         )
       );

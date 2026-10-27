@@ -6,6 +6,7 @@
     "lantern-measure": "dist/bin.js"
   },
   "dependencies": {
+    "@lantern/cli-core": "^0.1.0",
     "@lantern/e2e": "^0.11.4",
     "@lantern/logger": "^0.3.3",
     "@lantern/profiler": "^0.10.12",

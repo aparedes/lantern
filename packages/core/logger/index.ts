@@ -6,6 +6,21 @@ const warn = kleur.bold().yellow().bgRed;
 const error = kleur.bold().red;
 const timestampColor = kleur.grey;
 
+/** Node, as opposed to the measure web app, which bundles this module too. */
+const hasStderr = typeof process !== "undefined" && Boolean(process.stderr);
+
+// kleur decides on colors from stdout, but every log goes to stderr (see `log`): follow stderr, so
+// that `lantern … --json | jq` keeps colored logs in the terminal, and redirected logs stay plain.
+// The environment overrides kleur honours (NO_COLOR, FORCE_COLOR...) keep precedence.
+if (hasStderr) {
+  const { FORCE_COLOR, NODE_DISABLE_COLORS, NO_COLOR, TERM } = process.env;
+  kleur.enabled =
+    !NODE_DISABLE_COLORS &&
+    NO_COLOR == null &&
+    TERM !== "dumb" &&
+    ((FORCE_COLOR != null && FORCE_COLOR !== "0") || Boolean(process.stderr.isTTY));
+}
+
 export const LogLevel = {
   SILENT: -1,
   ERROR: 0,
@@ -37,13 +52,17 @@ const formatLine = (message: string) => {
   return `${timestampLog} ${message}`;
 };
 
+/**
+ * Every level goes to stderr: stdout is reserved for a command's result (a bundle id, the
+ * `--json` output...), so that it can be piped or parsed without the logs. The browser console
+ * keeps `console.log`, where `console.error` would flag every line as an error.
+ */
 const log = (message: string) => {
-  console.log(formatLine(message));
-};
-
-/** Warnings and errors go to stderr so that a piped stdout (JSON results, reports…) stays clean. */
-const logError = (message: string) => {
-  console.error(formatLine(message));
+  if (hasStderr) {
+    console.error(formatLine(message));
+  } else {
+    console.log(formatLine(message));
+  }
 };
 
 /**
@@ -84,12 +103,12 @@ export const Logger = {
   warn: (message: LogMessage) => {
     if (logLevel < LogLevel.WARN) return;
 
-    logError(warn(`⚠️  ${resolveMessage(message)}`));
+    log(warn(`⚠️  ${resolveMessage(message)}`));
   },
   error: (message: LogMessage) => {
     if (logLevel < LogLevel.ERROR) return;
 
-    logError(error(`🚨  ${resolveMessage(message)}`));
+    log(error(`🚨  ${resolveMessage(message)}`));
   },
 };
 

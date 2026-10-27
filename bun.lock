@@ -29,6 +29,7 @@
         "lantern": "dist/bin.js",
       },
       "dependencies": {
+        "@lantern/cli-core": "^0.1.0",
         "@lantern/e2e": "^0.11.4",
         "@lantern/logger": "^0.3.3",
         "@lantern/measure": "^0.5.0",
@@ -44,6 +45,7 @@
         "lantern-measure": "dist/bin.js",
       },
       "dependencies": {
+        "@lantern/cli-core": "^0.1.0",
         "@lantern/e2e": "^0.11.4",
         "@lantern/logger": "^0.3.3",
         "@lantern/profiler": "^0.10.12",
@@ -79,7 +81,9 @@
         "lantern-report": "./dist/openReport.js",
       },
       "dependencies": {
+        "@lantern/cli-core": "^0.1.0",
         "@lantern/logger": "^0.3.3",
+        "@lantern/profiler-protocol": "^0.1.0",
         "@lantern/shell": "^0.2.1",
         "@lantern/types": "^0.9.0",
         "commander": "^15.0.0",
@@ -105,6 +109,7 @@
         "lantern-test": "dist/bin.js",
       },
       "dependencies": {
+        "@lantern/cli-core": "^0.1.0",
         "@lantern/logger": "^0.3.3",
         "@lantern/profiler": "^0.10.12",
         "@lantern/profiler-protocol": "^0.1.0",
@@ -120,9 +125,19 @@
         "lantern-tools": "dist/bin.js",
       },
       "dependencies": {
+        "@lantern/cli-core": "^0.1.0",
         "@lantern/logger": "^0.3.3",
         "@lantern/profiler": "^0.10.12",
         "@lantern/shell": "^0.2.1",
+        "commander": "^15.0.0",
+      },
+    },
+    "packages/core/cli-core": {
+      "name": "@lantern/cli-core",
+      "version": "0.1.0",
+      "dependencies": {
+        "@lantern/logger": "^0.3.3",
+        "@lantern/profiler-protocol": "^0.1.0",
         "commander": "^15.0.0",
       },
     },
@@ -287,6 +302,8 @@
     "@lantern/android": ["@lantern/android@workspace:packages/platforms/android"],
 
     "@lantern/cli": ["@lantern/cli@workspace:packages/commands/lantern"],
+
+    "@lantern/cli-core": ["@lantern/cli-core@workspace:packages/core/cli-core"],
 
     "@lantern/e2e": ["@lantern/e2e@workspace:packages/commands/test"],
 

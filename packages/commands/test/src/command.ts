@@ -9,6 +9,8 @@ import {
 } from "./commands/optionParsers";
 import { PerformanceTester } from "./PerformanceTester";
 import { Logger } from "@lantern/logger";
+import { printResult, registerJsonOption } from "@lantern/cli-core";
+import { LanternError, toLanternError } from "@lantern/profiler-protocol";
 import {
   CommonOptions,
   applyCommonOptions,
@@ -89,7 +91,7 @@ lantern test --bundleId com.example.app --testCommand "maestro test flow.yml"
       ).default(false)
     );
 
-  registerCommonOptions(testCommand).action(async (options) => {
+  registerJsonOption(registerCommonOptions(testCommand)).action(async (options) => {
     await runTest(options);
   });
 };
@@ -166,6 +168,8 @@ const runTest = async ({
     },
   });
 
+  const resultsPath = performanceTester.options.resultsFileOptions.path;
+
   try {
     await performanceTester.iterate();
     performanceTester.writeResults();
@@ -174,9 +178,11 @@ const runTest = async ({
   } catch (error) {
     profiler.dispose();
     // Best effort: the report is a degraded view, its failure must not hide the test failure
+    let wroteResults = true;
     try {
       performanceTester.writeResults();
     } catch (writeError) {
+      wroteResults = false;
       Logger.error(
         `Could not write the results file: ${
           writeError instanceof Error ? writeError.message : "unknown error"
@@ -184,11 +190,19 @@ const runTest = async ({
       );
     }
 
-    if (error instanceof Error) {
-      Logger.error(`Lantern test FAILED ❌: ${error.message}
-      You can still open a degraded view of the report`);
-    }
-
-    process.exit(1);
+    // Reported (message, `--json` envelope, exit code) by the CLI's top-level handler
+    const failure = toLanternError(error);
+    throw new LanternError(
+      failure.code,
+      `Lantern test FAILED ❌: ${failure.message}${
+        wroteResults ? "\nYou can still open a degraded view of the report" : ""
+      }`,
+      {
+        details: { ...failure.details, resultsPath: wroteResults ? resultsPath : undefined },
+        cause: failure,
+      }
+    );
   }
+
+  printResult({ status: "SUCCESS", resultsPath });
 };

@@ -1,3 +1,4 @@
+import { LanternError } from "@lantern/profiler-protocol";
 import { adb } from "./adb";
 
 export const detectCurrentAppBundleId = (serial?: string) => {
@@ -19,7 +20,8 @@ export const detectCurrentAppBundleId = (serial?: string) => {
   const regexMatching = commandOutput.match(/name=([\w.]+)\/([\w.]+)\$?/);
 
   if (!regexMatching) {
-    throw new Error(
+    throw new LanternError(
+      "NO_FOREGROUND_APP",
       `Could not detect currently opened app, ${
         commandOutput
           ? `output of adb ${command.join(" ")} was ${commandOutput}`

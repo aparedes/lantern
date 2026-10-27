@@ -1,0 +1,12 @@
+{
+  "name": "@lantern/cli-core",
+  "version": "0.1.0",
+  "description": "Output contract shared by every lantern command: --json mode, error envelope, exit codes",
+  "main": "dist/src/index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@lantern/logger": "^0.3.3",
+    "@lantern/profiler-protocol": "^0.1.0",
+    "commander": "^15.0.0"
+  }
+}

@@ -1,7 +1,7 @@
 import { AndroidProfiler } from "@lantern/android";
 import { IOSProfiler } from "@lantern/ios";
 import { DeviceInfo, Platform, Profiler } from "@lantern/types";
-import { DeviceSelectionError } from "@lantern/profiler-protocol";
+import { DeviceSelectionError, LanternError } from "@lantern/profiler-protocol";
 
 /** `lantern` is the self-profiler used to measure the CLI itself; not user-facing. */
 export type ProfilerPlatform = Platform | "lantern";
@@ -73,7 +73,13 @@ export const profiler: Profiler = {
   dispose: () => instance?.dispose(),
 };
 
-export class PlatformResolutionError extends Error {}
+/** The platform could not be picked; the message tells the user what to pass. */
+export class PlatformResolutionError extends LanternError {
+  constructor(code: "INVALID_ARGUMENT" | "NO_DEVICE" | "AMBIGUOUS_PLATFORM", message: string) {
+    super(code, message);
+    this.name = "PlatformResolutionError";
+  }
+}
 export { DeviceSelectionError };
 
 /**
@@ -120,6 +126,7 @@ export const resolvePlatform = async (
   if (flag !== undefined) {
     if (!PLATFORMS.includes(flag as Platform)) {
       throw new PlatformResolutionError(
+        "INVALID_ARGUMENT",
         `Unknown --platform "${flag}" (expected ${PLATFORMS.join(" or ")})`
       );
     }
@@ -137,11 +144,13 @@ export const resolvePlatform = async (
   if (ios.length > 0 && android.length === 0) return "ios";
   if (android.length === 0 && ios.length === 0) {
     throw new PlatformResolutionError(
+      "NO_DEVICE",
       "No device found. Connect an Android device (adb) or an iOS device over USB, or pass --platform android|ios"
     );
   }
 
   throw new PlatformResolutionError(
+    "AMBIGUOUS_PLATFORM",
     `Both an Android device (${android.map((d) => d.name).join(", ")}) and an iOS device (${ios
       .map((d) => d.name)
       .join(", ")}) are connected: pass --platform android|ios`

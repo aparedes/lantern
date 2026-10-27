@@ -107,28 +107,28 @@ describe("applyCommonOptions", () => {
     expect(select).toHaveBeenCalledWith(undefined, undefined);
   });
 
-  it("prints the message and exits with 1 on a platform resolution error", async () => {
-    select.mockRejectedValueOnce(new PlatformResolutionError("No device found"));
+  it("rejects with a platform resolution error, leaving printing and exiting to the CLI", async () => {
+    const failure = new PlatformResolutionError("NO_DEVICE", "No device found");
+    select.mockRejectedValueOnce(failure);
 
-    await expect(applyCommonOptions({})).rejects.toThrow(ExitSentinel);
+    await expect(applyCommonOptions({})).rejects.toBe(failure);
 
-    expect(error).toHaveBeenCalledWith("No device found");
-    expect(exit).toHaveBeenCalledWith(1);
+    expect(failure.code).toBe("NO_DEVICE");
+    expect(error).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
   });
 
-  it("prints the message and exits with 1 on a device selection error", async () => {
-    select.mockRejectedValueOnce(
-      new DeviceSelectionError(
-        "Several Android devices are connected (a, b): pass --device <serial>"
-      )
-    );
-
-    await expect(applyCommonOptions({ device: "c" })).rejects.toThrow(ExitSentinel);
-
-    expect(error).toHaveBeenCalledWith(
+  it("rejects with a device selection error, leaving printing and exiting to the CLI", async () => {
+    const failure = new DeviceSelectionError(
+      "AMBIGUOUS_DEVICE",
       "Several Android devices are connected (a, b): pass --device <serial>"
     );
-    expect(exit).toHaveBeenCalledWith(1);
+    select.mockRejectedValueOnce(failure);
+
+    await expect(applyCommonOptions({ device: "c" })).rejects.toBe(failure);
+
+    expect(error).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
   });
 
   it("rethrows any other error untouched", async () => {

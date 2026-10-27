@@ -1,7 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { Logger } from "@lantern/logger";
+import { runCli } from "@lantern/cli-core";
 import { installSignalHandlers } from "@lantern/profiler";
 import { EMBEDDED_ASSETS } from "./embedded.generated";
 import { version } from "../package.json";
@@ -31,9 +31,4 @@ process.env.LANTERN_REPORT_ASSETS_PATH ??= path.join(assetsRoot, "report");
 process.env.LANTERN_WEBAPP_PATH ??= path.join(assetsRoot, "webapp");
 
 installSignalHandlers();
-createProgram()
-  .parseAsync()
-  .catch((error: unknown) => {
-    Logger.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+void runCli(createProgram());

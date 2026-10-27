@@ -14,6 +14,7 @@
   "references": [
     { "path": "./packages/core/shell" },
     { "path": "./packages/core/logger" },
+    { "path": "./packages/core/cli-core" },
     { "path": "./packages/core/types" },
     { "path": "./packages/core/profiler-protocol" },
     { "path": "./packages/platforms/android" },

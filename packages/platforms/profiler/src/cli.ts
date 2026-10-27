@@ -1,13 +1,7 @@
 import { Command, Option } from "commander";
 import { LogLevel, Logger } from "@lantern/logger";
 import { DeviceInfo } from "@lantern/types";
-import {
-  DeviceSelectionError,
-  PLATFORMS,
-  PlatformResolutionError,
-  ProfilerPlatform,
-  selectPlatformAndDevice,
-} from "./index";
+import { PLATFORMS, ProfilerPlatform, selectPlatformAndDevice } from "./index";
 
 /** The options `registerCommonOptions` adds, as commander hands them to the action. */
 export interface CommonOptions {
@@ -39,9 +33,10 @@ export const registerCommonOptions = (command: Command): Command =>
     .addOption(new Option("--logLevel <logLevel>", "Set Log level").choices(LOG_LEVEL_NAMES));
 
 /**
- * Applies the log level, then fixes the platform and device for the process. A platform or
- * device that cannot be picked is a user error: its message is printed and the process exits
- * with 1 before anything (a server, a test run) starts. Anything else propagates.
+ * Applies the log level, then fixes the platform and device for the process, before anything (a
+ * server, a test run) starts. A platform or device that cannot be picked rejects with a
+ * `PlatformResolutionError` / `DeviceSelectionError`, whose code and message the CLI's top-level
+ * handler prints (see `runCli` in `@lantern/cli-core`).
  */
 export const applyCommonOptions = async ({
   platform,
@@ -53,18 +48,10 @@ export const applyCommonOptions = async ({
     Logger.setLogLevel(LogLevel[logLevel.toLocaleUpperCase() as keyof typeof LogLevel]);
   }
 
-  try {
-    const selection = await selectPlatformAndDevice(platform, device);
-    Logger.info(
-      `Using ${selection.platform} device ${selection.device.name} (${selection.device.id})`
-    );
+  const selection = await selectPlatformAndDevice(platform, device);
+  Logger.info(
+    `Using ${selection.platform} device ${selection.device.name} (${selection.device.id})`
+  );
 
-    return selection;
-  } catch (error) {
-    if (error instanceof PlatformResolutionError || error instanceof DeviceSelectionError) {
-      Logger.error(error.message);
-      process.exit(1);
-    }
-    throw error;
-  }
+  return selection;
 };

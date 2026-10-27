@@ -1,7 +1,13 @@
 import type { DeviceInfo } from "@lantern/types";
+import { LanternError } from "./errors";
 
 /** The device to profile could not be picked; the message tells the user what to pass. */
-export class DeviceSelectionError extends Error {}
+export class DeviceSelectionError extends LanternError {
+  constructor(code: "NO_DEVICE" | "AMBIGUOUS_DEVICE" | "UNKNOWN_DEVICE", message: string) {
+    super(code, message);
+    this.name = "DeviceSelectionError";
+  }
+}
 
 export interface SelectDeviceOptions {
   /** The id the user asked for (`--device`), if any. */
@@ -28,6 +34,7 @@ export const selectDevice = (
     const device = devices.find(({ id }) => id === requested);
     if (!device) {
       throw new DeviceSelectionError(
+        "UNKNOWN_DEVICE",
         `Unknown ${platformName} device "${requested}" (${connected})`
       );
     }
@@ -36,10 +43,11 @@ export const selectDevice = (
   }
 
   if (devices.length === 0) {
-    throw new DeviceSelectionError(`No ${platformName} device connected`);
+    throw new DeviceSelectionError("NO_DEVICE", `No ${platformName} device connected`);
   }
   if (devices.length > 1) {
     throw new DeviceSelectionError(
+      "AMBIGUOUS_DEVICE",
       `Several ${platformName} devices are connected (${ids.join(", ")}): pass --device <${idLabel}>`
     );
   }

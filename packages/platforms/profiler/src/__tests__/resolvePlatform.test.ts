@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterAll, spyOn } from "bun:test";
 import { DeviceInfo } from "@lantern/types";
 import { AndroidProfiler } from "@lantern/android";
 import { IOSProfiler } from "@lantern/ios";
-import { PlatformResolutionError, createProfiler, resolvePlatform } from "../index";
+import {
+  PlatformResolutionError,
+  createProfiler,
+  getHardwareName,
+  resolvePlatform,
+} from "../index";
 
 const originalPlatformEnv = process.env.PLATFORM;
 
@@ -104,5 +109,21 @@ describe("createProfiler", () => {
 
   it("leaves the device to be resolved when none was asked for", () => {
     expect((createProfiler("android") as AndroidProfiler).requestedDevice).toBeUndefined();
+  });
+});
+
+describe("getHardwareName", () => {
+  it("names an iOS device by its model, never by what its owner called it", () => {
+    expect(getHardwareName({ ...iosDevice, name: "Jane's iPhone" })).toBe("iPhone16,1");
+    expect(getHardwareName({ ...iosDevice, name: "Jane's iPhone", model: undefined })).toBe(
+      undefined
+    );
+  });
+
+  it("names an Android device by its model, and leaves out a bare serial", () => {
+    expect(getHardwareName(androidDevice)).toBe("Pixel 7");
+    expect(
+      getHardwareName({ id: "192.168.1.20:5555", name: "192.168.1.20:5555", platform: "android" })
+    ).toBe(undefined);
   });
 });

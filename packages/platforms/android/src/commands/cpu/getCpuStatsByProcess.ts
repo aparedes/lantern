@@ -24,7 +24,11 @@ export class ThreadNamer {
     // Free the labels of the threads that died or renamed themselves since the last sample
     for (const [tid, { baseName, index }] of this.labels) {
       if (current.get(tid) !== baseName) {
-        this.usedIndexes.get(baseName)?.delete(index);
+        const used = this.usedIndexes.get(baseName);
+        used?.delete(index);
+        // Apps churn through uniquely named threads ("Thread-1234"): keep no entry for a name
+        // nothing uses any more
+        if (used?.size === 0) this.usedIndexes.delete(baseName);
         this.labels.delete(tid);
       }
     }

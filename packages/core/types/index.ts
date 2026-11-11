@@ -196,7 +196,10 @@ export interface Profiler {
 export interface DeviceSpecs {
   refreshRate: number;
   platform?: Platform;
-  /** Human-readable device name, e.g. "Pixel 7". */
+  /**
+   * What the hardware is, e.g. "Pixel 7" or, on iOS, the model identifier ("iPhone16,1").
+   * Never the name the owner gave the device.
+   */
   deviceName?: string;
   /** iOS model identifier (e.g. "iPhone16,1"), when known. */
   deviceModel?: string;

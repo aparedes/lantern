@@ -101,6 +101,17 @@ describe("ThreadNamer", () => {
     });
   });
 
+  it("keeps no bookkeeping for names no live thread uses any more", () => {
+    const namer = new ThreadNamer();
+    const usedIndexes = (namer as unknown as { usedIndexes: Map<string, Set<number>> }).usedIndexes;
+
+    for (let i = 0; i < 50; i++) {
+      labelsOf(namer, [statLine("1", "Main"), statLine(`${100 + i}`, `Thread-${i}`)]);
+    }
+
+    expect([...usedIndexes.keys()]).toEqual(["Main", "Thread-49"]);
+  });
+
   it("hands a freed label to a new thread while survivors keep theirs", () => {
     const namer = new ThreadNamer();
 

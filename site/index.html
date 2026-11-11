@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lantern — performance measurement for Android and iOS apps</title>
+    <meta
+      name="description"
+      content="Lantern measures the CPU, RAM and FPS of any Android or iOS app from the outside, with no code changes and no restrictions on production builds."
+    />
+    <meta name="color-scheme" content="dark light" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Lantern" />
+    <meta
+      property="og:description"
+      content="Measure the CPU, RAM and FPS of any Android or iOS app from the outside. No code changes, production builds welcome."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%AE%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="wrap nav-inner">
+        <a class="brand" href="./"><span aria-hidden="true">🏮</span> Lantern</a>
+        <nav aria-label="Primary">
+          <a href="#commands">Commands</a>
+          <a href="#install">Install</a>
+          <a href="#how">How it works</a>
+          <a class="nav-gh" href="https://github.com/aparedes/lantern">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="wrap hero-inner">
+          <div class="hero-copy">
+            <p class="eyebrow">Android · iOS · macOS host</p>
+            <h1>See how your app really performs.</h1>
+            <p class="lede">
+              Lantern measures the CPU, RAM and FPS of any Android or iOS app from the outside. No
+              code changes to your app, and no restrictions on measuring production builds.
+            </p>
+            <div class="cta">
+              <a class="btn btn-primary" href="https://github.com/aparedes/lantern/releases"
+                >Download for macOS</a
+              >
+              <a class="btn" href="https://github.com/aparedes/lantern">View on GitHub</a>
+            </div>
+          </div>
+
+          <div class="terminal" role="img" aria-label="Example Lantern commands in a terminal">
+            <div class="terminal-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+            <pre><code><span class="c"># live dashboard while you use the app</span>
+<span class="p">$</span> lantern measure --platform ios
+
+<span class="c"># repeatable end-to-end performance test</span>
+<span class="p">$</span> lantern test --bundleId com.example.app \
+    --testCommand "maestro test flow.yml"
+
+<span class="c"># shareable HTML report</span>
+<span class="p">$</span> lantern report results.json -o report</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <ul class="features">
+            <li>
+              <h3>Any app, as shipped</h3>
+              <p>
+                Lantern profiles from outside the app, so you can measure the build your users
+                actually run. Nothing to install in your code.
+              </p>
+            </li>
+            <li>
+              <h3>Live dashboard</h3>
+              <p>
+                Watch CPU, RAM and FPS in a web dashboard in real time while you use the app on a
+                connected device.
+              </p>
+            </li>
+            <li>
+              <h3>Automated and repeatable</h3>
+              <p>
+                Drive the app with your own end-to-end test command and get results averaged over
+                several iterations, written out as JSON.
+              </p>
+            </li>
+            <li>
+              <h3>Reports you can share</h3>
+              <p>
+                Turn one or more result files into a static HTML report, with a performance score
+                computed from CPU, FPS and thread-lock.
+              </p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="commands">
+        <div class="wrap">
+          <h2>Commands</h2>
+          <div class="commands">
+            <article>
+              <h3><code>lantern measure</code></h3>
+              <p>Live web dashboard with real-time measures.</p>
+              <pre><code>lantern measure --platform ios</code></pre>
+              <p class="note">
+                <code>--platform android|ios</code> is optional. It is auto-detected when only one
+                kind of device is connected.
+              </p>
+            </article>
+            <article>
+              <h3><code>lantern test</code></h3>
+              <p>
+                End-to-end performance testing, averaged over several iterations and written out as
+                JSON results.
+              </p>
+              <pre><code>lantern test --bundleId com.example.app \
+  --testCommand "maestro test flow.yml" \
+  --platform ios</code></pre>
+            </article>
+            <article>
+              <h3><code>lantern report</code></h3>
+              <p>Generate a static HTML report from one or more results files.</p>
+              <pre><code>lantern report results1.json results2.json -o output-dir</code></pre>
+            </article>
+            <article>
+              <h3><code>lantern tools get_bundle_id</code></h3>
+              <p>Retrieve the bundle id of the app currently running on the device.</p>
+              <pre><code>lantern tools get_bundle_id --platform ios</code></pre>
+            </article>
+          </div>
+          <p class="note">
+            Run <code>lantern --help</code> or <code>lantern &lt;command&gt; --help</code> for the
+            full CLI reference.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="install">
+        <div class="wrap">
+          <h2>Install</h2>
+          <div class="two-col">
+            <article>
+              <h3>Standalone macOS binary</h3>
+              <p>
+                Signed and notarized builds for Apple Silicon Macs are attached to
+                <a href="https://github.com/aparedes/lantern/releases">GitHub Releases</a>. Download
+                <code>lantern.zip</code>, unzip it and move <code>lantern</code> onto your PATH.
+              </p>
+            </article>
+            <article>
+              <h3>From source</h3>
+              <pre><code>bun install
+bun run build
+bun run lantern -- measure</code></pre>
+            </article>
+          </div>
+
+          <h3 class="sub">Requirements</h3>
+          <ul class="reqs">
+            <li>
+              <strong>Host:</strong> macOS. The standalone binary and the iOS profiler are
+              macOS-only.
+            </li>
+            <li>
+              <strong>Android:</strong> <code>adb</code> on your PATH and a device with USB
+              debugging enabled (API 24+).
+            </li>
+            <li>
+              <strong>iOS:</strong> a device connected over USB with Developer Mode enabled and the
+              personalized Developer Disk Image mounted once via Xcode or <code>devicectl</code>.
+              See the
+              <a
+                href="https://github.com/aparedes/lantern/blob/main/packages/platforms/ios/README.md"
+                >iOS setup notes</a
+              >.
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="how">
+        <div class="wrap">
+          <h2>How it works</h2>
+          <div class="two-col">
+            <article>
+              <h3>Android</h3>
+              <p>
+                A small Rust binary is pushed to the device, where it reads <code>/proc</code> and
+                atrace.
+              </p>
+              <p>
+                <a
+                  href="https://github.com/aparedes/lantern/blob/main/packages/platforms/android/rust-profiler/README.md"
+                  >Android profiler details</a
+                >
+              </p>
+            </article>
+            <article>
+              <h3>iOS</h3>
+              <p>
+                A host-side Rust binary talks to the device over usbmuxd and the instruments
+                services.
+              </p>
+              <p>
+                <a
+                  href="https://github.com/aparedes/lantern/blob/main/packages/platforms/ios/rust-profiler/README.md"
+                  >iOS profiler details</a
+                >
+              </p>
+            </article>
+          </div>
+          <p class="note">
+            FPS is scored against the device's refresh rate. iOS has no per-thread data, so its
+            score carries no thread-lock penalty.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-inner">
+        <p>
+          MIT licensed. Lantern started as a fork of
+          <a href="https://github.com/bamlab/flashlight">Flashlight</a> by BAM. Thank you to its
+          authors.
+        </p>
+        <p>
+          <a href="https://github.com/aparedes/lantern">Source</a> ·
+          <a href="https://github.com/aparedes/lantern/issues">Issues</a> ·
+          <a href="https://github.com/aparedes/lantern/blob/main/CONTRIBUTING.md">Contributing</a>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

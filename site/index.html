@@ -171,12 +171,13 @@ bun run lantern -- measure</code></pre>
             </li>
             <li>
               <strong>Android:</strong> <code>adb</code> on your PATH and a device with USB
-              debugging enabled (API 24+).
+              debugging enabled (API 24+). An arm64 emulator (the default on Apple Silicon) also
+              works, though its numbers reflect the host Mac rather than a phone.
             </li>
             <li>
-              <strong>iOS:</strong> a device connected over USB with Developer Mode enabled and the
-              personalized Developer Disk Image mounted once via Xcode or <code>devicectl</code>.
-              See the
+              <strong>iOS:</strong> a physical device connected over USB with Developer Mode enabled
+              and the personalized Developer Disk Image mounted once via Xcode or
+              <code>devicectl</code>. The iOS Simulator is not supported. See the
               <a
                 href="https://github.com/aparedes/lantern/blob/main/packages/platforms/ios/README.md"
                 >iOS setup notes</a

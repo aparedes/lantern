@@ -66,11 +66,12 @@ bun run lantern -- measure
 bun run build:standalone
 ```
 
-produces `build/standalone/lantern-macos-arm64`, a self-contained
+produces `build/standalone/lantern`, a self-contained
 executable you can copy anywhere on your PATH.
 
-There is no hosted installer — build from source or produce the standalone
-binary yourself.
+Signed and notarized builds for Apple Silicon Macs are attached to
+[GitHub Releases](https://github.com/aparedes/lantern/releases): download
+`lantern.zip`, unzip it and move `lantern` onto your PATH.
 
 ## How it works
 
@@ -89,16 +90,17 @@ rendering carry no FPS.
 
 ## Environment variables
 
-| Variable                     | Purpose                                                 |
-| ---------------------------- | ------------------------------------------------------- |
-| `PLATFORM`                   | `android` or `ios`, used when `--platform` isn't passed |
-| `LANTERN_BINARY_PATH`        | Override the Android profiler binary                    |
-| `LANTERN_IOS_BINARY_PATH`    | Override the iOS profiler binary                        |
-| `LANTERN_IOS_DEBUG`          | Verbose iOS profiler protocol logs on stderr            |
-| `LANTERN_IOS_REFRESH_RATE`   | Override the auto-detected iOS display refresh rate     |
-| `LANTERN_WEBAPP_PATH`        | Override the bundled `measure` web app path             |
-| `LANTERN_REPORT_ASSETS_PATH` | Override the bundled `report` web app path              |
-| `LANTERN_CODESIGN_IDENTITY`  | Default signing identity for `build:standalone --sign`  |
+| Variable                     | Purpose                                                      |
+| ---------------------------- | ------------------------------------------------------------ |
+| `PLATFORM`                   | `android` or `ios`, used when `--platform` isn't passed      |
+| `LANTERN_BINARY_PATH`        | Override the Android profiler binary                         |
+| `LANTERN_IOS_BINARY_PATH`    | Override the iOS profiler binary                             |
+| `LANTERN_IOS_DEBUG`          | Verbose iOS profiler protocol logs on stderr                 |
+| `LANTERN_IOS_REFRESH_RATE`   | Override the auto-detected iOS display refresh rate          |
+| `LANTERN_WEBAPP_PATH`        | Override the bundled `measure` web app path                  |
+| `LANTERN_REPORT_ASSETS_PATH` | Override the bundled `report` web app path                   |
+| `LANTERN_CODESIGN_IDENTITY`  | Default signing identity for `build:standalone --sign`       |
+| `LANTERN_NOTARY_PROFILE`     | Default notarytool profile for `build:standalone --notarize` |
 
 ## Contributing
 

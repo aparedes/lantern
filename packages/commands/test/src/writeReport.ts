@@ -2,6 +2,7 @@ import { Logger } from "@lantern/logger";
 import { averageTestCaseResult } from "@lantern/reporter";
 import {
   AveragedTestCaseResult,
+  DeviceSpecs,
   TestCaseIterationResult,
   TestCaseResult,
   TestCaseResultStatus,
@@ -30,9 +31,11 @@ export const writeReport = (
     filePath,
     title,
     overrideScore,
+    specs,
   }: {
     filePath: string;
     title: string;
+    specs?: DeviceSpecs;
     overrideScore?: (result: AveragedTestCaseResult) => number;
   }
 ) => {
@@ -40,6 +43,7 @@ export const writeReport = (
     name: title,
     iterations: measures,
     status: getTestCaseStatus(measures),
+    ...(specs ? { specs } : {}),
   };
 
   /**

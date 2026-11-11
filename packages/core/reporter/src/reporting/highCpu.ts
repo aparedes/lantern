@@ -1,6 +1,7 @@
-import { Measure, POLLING_INTERVAL, AveragedTestCaseResult } from "@lantern/types";
+import { Measure, AveragedTestCaseResult } from "@lantern/types";
 import { getStatsByThread, getValuesStats } from "../utils/getValuesStats";
 import type { IterationSummary } from "./iterationSummary";
+import { getMeasureDurations } from "./timeline";
 
 /** A thread polled above this CPU percentage is considered to be locking its process. */
 export const HIGH_CPU_USAGE_THRESHOLD = 90;
@@ -12,14 +13,16 @@ export const getHighCpuUsage = (
 ) => {
   const highCpuUsageByProcess: { [processName: string]: number } = {};
 
-  for (const measure of measures) {
+  const durations = getMeasureDurations(measures);
+
+  measures.forEach((measure, i) => {
     for (const [processName, cpuUsage] of Object.entries(measure.cpu.perName)) {
       if (cpuUsage > cpuUsageThreshold) {
         highCpuUsageByProcess[processName] =
-          (highCpuUsageByProcess[processName] ?? 0) + POLLING_INTERVAL;
+          (highCpuUsageByProcess[processName] ?? 0) + durations[i];
       }
     }
-  }
+  });
 
   return highCpuUsageByProcess;
 };

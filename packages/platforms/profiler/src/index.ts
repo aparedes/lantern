@@ -1,6 +1,6 @@
 import { AndroidProfiler } from "@lantern/android";
 import { IOSProfiler } from "@lantern/ios";
-import { DeviceInfo, Platform, Profiler } from "@lantern/types";
+import { DeviceInfo, DeviceSpecs, Platform, Profiler } from "@lantern/types";
 import { DeviceSelectionError } from "@lantern/profiler-protocol";
 
 /** `lantern` is the self-profiler used to measure the CLI itself; not user-facing. */
@@ -71,6 +71,21 @@ export const profiler: Profiler = {
   listDevices: () => get().listDevices(),
   // Nothing to release when no platform profiler was ever created
   dispose: () => instance?.dispose(),
+};
+
+/** What a result file records about the device its measures were taken on. */
+export const getDeviceSpecs = async (): Promise<DeviceSpecs> => {
+  const [refreshRate, device] = await Promise.all([
+    profiler.detectDeviceRefreshRate(),
+    profiler.resolveDevice(),
+  ]);
+
+  return {
+    refreshRate,
+    platform: device.platform,
+    deviceName: device.name,
+    deviceModel: device.model,
+  };
 };
 
 export class PlatformResolutionError extends Error {}

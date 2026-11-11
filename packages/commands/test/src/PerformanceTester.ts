@@ -1,6 +1,6 @@
 import { Logger } from "@lantern/logger";
-import { TestCaseIterationResult } from "@lantern/types";
-import { profiler } from "@lantern/profiler";
+import { DeviceSpecs, TestCaseIterationResult } from "@lantern/types";
+import { getDeviceSpecs, profiler } from "@lantern/profiler";
 import * as p from "path";
 import { Options, SingleIterationTester, TestCase } from "./SingleIterationTester";
 import { writeReport } from "./writeReport";
@@ -21,6 +21,7 @@ export type PerformanceTesterOptions = Omit<
 export class PerformanceTester {
   public measures: TestCaseIterationResult[] = [];
   private retryCount = 0;
+  private specs?: DeviceSpecs;
   options: Options;
 
   constructor(
@@ -53,6 +54,7 @@ export class PerformanceTester {
   async iterate(): Promise<void> {
     // Important to ensure that the profiler is installed before we run the test!
     await profiler.installProfilerOnDevice();
+    this.specs = await getDeviceSpecs();
 
     let currentIterationIndex = 0;
     this.measures = [];
@@ -96,6 +98,7 @@ export class PerformanceTester {
       filePath: path,
       title,
       overrideScore: this.testCase.getScore,
+      specs: this.specs,
     });
   }
 

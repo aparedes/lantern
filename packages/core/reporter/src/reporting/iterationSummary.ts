@@ -1,8 +1,8 @@
 import { TestCaseIterationResult } from "@lantern/types";
 import { averageCpuUsagePerProcess, ProcessCpuUsage, sortByCpuUsage, sumCpuUsage } from "./cpu";
-import { getAverageFPSUsage } from "./fps";
+import { getAverageFPSUsage, getLowestFPS } from "./fps";
 import { getAverageTotalHighCPUUsage, getHighCpuUsage } from "./highCpu";
-import { getAverageRAMUsage } from "./ram";
+import { getAverageRAMUsage, getPeakRAMUsage } from "./ram";
 
 /**
  * Per-iteration aggregates every stat is derived from. Computed once per iteration so that
@@ -18,7 +18,11 @@ export interface IterationSummary {
   /** Sum of `highCpuUsagePerProcess`. */
   totalHighCpuUsage: number;
   fps: number | undefined;
+  /** Lowest FPS sample of the iteration. */
+  fpsMin: number | undefined;
   ram: number | undefined;
+  /** Highest RAM sample of the iteration. */
+  ramPeak: number | undefined;
   time: number;
 }
 
@@ -32,7 +36,9 @@ export const summarizeIteration = (iteration: TestCaseIterationResult): Iteratio
     highCpuUsagePerProcess,
     totalHighCpuUsage: getAverageTotalHighCPUUsage(highCpuUsagePerProcess),
     fps: getAverageFPSUsage(iteration.measures),
+    fpsMin: getLowestFPS(iteration.measures),
     ram: getAverageRAMUsage(iteration.measures),
+    ramPeak: getPeakRAMUsage(iteration.measures),
     time: iteration.time,
   };
 };

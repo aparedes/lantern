@@ -1,4 +1,5 @@
 export * from "./reporting/averageIterations";
+export * from "./reporting/timeline";
 export * from "./reporting/getScore";
 export * from "./reporting/Report";
 export * from "./utils/sanitizeProcessName";

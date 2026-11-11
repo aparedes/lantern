@@ -18,3 +18,19 @@ export const getFpsStats = (iterations: IterationSummary[], averageFps?: number)
 
   return getValuesStats(getFpsValues(iterations), averageFps);
 };
+
+/** The lowest FPS sample, or undefined when no sample carries one. */
+export const getLowestFPS = (measures: Measure[]) => {
+  const values = measures.flatMap((measure) => (measure.fps !== undefined ? [measure.fps] : []));
+
+  return values.length > 0 ? Math.min(...values) : undefined;
+};
+
+export const getLowestFpsStats = (iterations: IterationSummary[], averageLowestFps?: number) => {
+  if (averageLowestFps === undefined) return undefined;
+
+  return getValuesStats(
+    iterations.flatMap((iteration) => (iteration.fpsMin !== undefined ? [iteration.fpsMin] : [])),
+    averageLowestFps
+  );
+};

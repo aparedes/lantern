@@ -78,7 +78,7 @@ it("average measures", () => {
         },
         ram: 200,
         fps: 60,
-        time: 500,
+        time: 0,
       },
       {
         cpu: {
@@ -148,6 +148,21 @@ describe("averageIterations", () => {
       undefined,
       undefined,
     ]);
+  });
+
+  it("positions averaged samples at the mean offset of the iterations", () => {
+    const at = (times: number[]): TestCaseIterationResult => ({
+      ...ITERATION_1,
+      measures: ITERATION_1.measures
+        .concat(ITERATION_2.measures)
+        .slice(0, times.length)
+        .map((measure, i) => ({ ...measure, time: times[i] })),
+    });
+    // Offsets 0, 510 and 0, 1050 (the second one counted from the epoch)
+    const epoch = 1788371317314;
+    const averaged = averageIterations([at([0, 510]), at([epoch, epoch + 1050])]);
+
+    expect(averaged.measures.map((m) => m.time)).toEqual([0, 780]);
   });
 
   it("returns no measures for no iterations", () => {

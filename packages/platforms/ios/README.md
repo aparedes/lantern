@@ -47,7 +47,8 @@ See `rust-profiler/README.md` for the binary's CLI and wire protocol.
   single connection.
 - `poll.rs` lets `sysmontap` drive emission — one measure per sample —
   draining any queued graphics frames first so FPS stays fresh; FPS is
-  omitted until the first frame arrives. The target process is matched by
+  omitted until the first frame arrives (the report draws those samples as
+  gaps rather than hiding the FPS chart). The target process is matched by
   executable name every sample, so it survives app restarts (`targetLost`
   / `target` transitions).
 - See `rust-profiler/README.md`'s "Wire protocol" section for the exact

@@ -84,8 +84,10 @@ One JSON object per stdout line (NDJSON):
 {"type":"status","event":"stopped"}
 ```
 
-- `measure` matches the `Measure` type in `@lantern/types`: `time` is
-  epoch ms, `cpu.perName.Total` is percent of one core (can exceed 100 on
+- `measure` matches the `Measure` type in `@lantern/types`, except for `time`:
+  the line carries the host's epoch milliseconds, and `@lantern/ios` converts
+  it to milliseconds since the session start (the `started` status) before it
+  becomes a `Measure.time`. `cpu.perName.Total` is percent of one core (can exceed 100 on
   multiple cores), `ram` is MB (phys footprint), `fps` is CoreAnimation FPS
   and is omitted until the first graphics sample arrives, and again whenever
   the last graphics sample is older than `max(3 × interval, 2 s)` — graphics

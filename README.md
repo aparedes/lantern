@@ -81,7 +81,11 @@ iOS is profiled by a host-side Rust binary that talks to the device over
 usbmuxd and the instruments services — see
 [`packages/platforms/ios/rust-profiler/README.md`](./packages/platforms/ios/rust-profiler/README.md).
 The performance score is computed from CPU, FPS and thread-lock; iOS has no
-per-thread data, so its score has no thread-lock penalty.
+per-thread data, so its score has no thread-lock penalty. FPS is scored against
+the device's refresh rate, which `lantern test` and `lantern measure` record in
+the result (`specs`); result files without it are scored against 60 Hz. On
+Android, idle time counts as on-target frames; on iOS, samples without
+rendering carry no FPS.
 
 ## Environment variables
 

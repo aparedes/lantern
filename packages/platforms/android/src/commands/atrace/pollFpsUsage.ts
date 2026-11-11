@@ -1,6 +1,4 @@
 import { Logger } from "@lantern/logger";
-import { POLLING_INTERVAL } from "@lantern/types";
-import { refreshRateManager } from "../detectCurrentDeviceRefreshRate";
 
 export const parseLine = (
   line: string
@@ -32,20 +30,10 @@ export class FrameTimeParser {
   private methodStartedCount = 0;
   private doFrameStartedTimeStamp: number | null = null;
 
-  getFrameTimes(
-    output: string,
-    pid: string
-  ): {
-    frameTimes: number[];
-    interval: number;
-  } {
+  getFrameTimes(output: string, pid: string): number[] {
     const lines = output.split(/\r\n|\n|\r/).filter(Boolean);
 
-    if (lines.length === 0)
-      return {
-        frameTimes: [],
-        interval: POLLING_INTERVAL,
-      };
+    if (lines.length === 0) return [];
 
     const frameTimes: number[] = [];
 
@@ -84,16 +72,22 @@ ${error instanceof Error ? error.message : error}`);
       }
     });
 
-    return {
-      frameTimes,
-      interval: parseLine(lines[lines.length - 1]).timestamp - parseLine(lines[0]).timestamp,
-    };
+    return frameTimes;
   }
 
-  static getFps(frameTimes: number[], timeInterval: number, uiCpuUsage: number) {
+  /**
+   * `timeInterval` is the real time between two samples (ms) — every frame of the batch
+   * happened within it — and `targetFrameRate` the device's refresh rate.
+   */
+  static getFps(
+    frameTimes: number[],
+    timeInterval: number,
+    uiCpuUsage: number,
+    targetFrameRate: number
+  ) {
     const frameCount = frameTimes.length;
 
-    const TARGET_FRAME_RATE = refreshRateManager.getRefreshRate();
+    const TARGET_FRAME_RATE = targetFrameRate;
     const TARGET_FRAME_TIME = 1000 / TARGET_FRAME_RATE;
 
     /**

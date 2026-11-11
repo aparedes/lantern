@@ -3,29 +3,6 @@ import { Logger } from "@lantern/logger";
 
 const DEFAULT_FRAME_RATE = 60;
 
-function deviceRefreshRateManager() {
-  let refreshRate: number | null = null;
-
-  return {
-    isInitialized: () => refreshRate !== null,
-    getRefreshRate: () => {
-      if (refreshRate === null) {
-        throw new Error("Refresh rate not initialized");
-      }
-      return refreshRate;
-    },
-    setRefreshRate: (serial?: string) => {
-      try {
-        refreshRate = detectCurrentDeviceRefreshRate(serial);
-        Logger.info(`Target frame rate: ${refreshRate} Hz`);
-      } catch (e) {
-        Logger.error(`Could not detect device refresh rate: ${e}`);
-        refreshRate = DEFAULT_FRAME_RATE;
-      }
-    },
-  };
-}
-
 /** The pipeline runs on the device's shell, so it is one adb argument. */
 const DUMPSYS_DISPLAY = 'dumpsys display | grep -E "mRefreshRate|DisplayDeviceInfo"';
 
@@ -36,7 +13,7 @@ export const detectCurrentDeviceRefreshRate = (serial?: string) => {
 
   if (renderFrameRateMatch) {
     Logger.debug(`Detected device refresh rate: ${renderFrameRateMatch[1]} Hz`);
-    return Math.floor(parseFloat(renderFrameRateMatch[1]));
+    return Math.round(parseFloat(renderFrameRateMatch[1]));
   }
 
   const matches = commandOutput.matchAll(/fps=(\d+\.?\d*)/g);
@@ -55,9 +32,19 @@ export const detectCurrentDeviceRefreshRate = (serial?: string) => {
 
   Logger.debug(`Detected device refresh rate: ${refreshRates[0]} Hz`);
 
-  return Math.floor(refreshRates[0]);
+  return Math.round(refreshRates[0]);
 };
 
-const refreshRateManager = deviceRefreshRateManager();
+/** The device's refresh rate, or `DEFAULT_FRAME_RATE` when it cannot be detected (logged). */
+export const detectRefreshRateOrDefault = (serial?: string): number => {
+  try {
+    const refreshRate = detectCurrentDeviceRefreshRate(serial);
+    Logger.info(`Target frame rate: ${refreshRate} Hz`);
 
-export { refreshRateManager };
+    return refreshRate;
+  } catch (e) {
+    Logger.error(`Could not detect device refresh rate: ${e}`);
+
+    return DEFAULT_FRAME_RATE;
+  }
+};

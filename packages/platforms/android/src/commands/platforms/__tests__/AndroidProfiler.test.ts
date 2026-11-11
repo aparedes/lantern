@@ -4,6 +4,7 @@ import * as childProcess from "child_process";
 import { afterAll, beforeEach, describe, expect, it, jest, mock, spyOn } from "bun:test";
 import { Logger, LogLevel } from "@lantern/logger";
 import { DeviceSelectionError } from "@lantern/profiler-protocol";
+import type { Measure, ProfilingSession } from "@lantern/types";
 import { AndroidProfiler } from "../AndroidProfiler";
 
 Logger.setLogLevel(LogLevel.SILENT);
@@ -31,6 +32,9 @@ const PROFILER_PATH = "/data/local/tmp/lantern-android-profiler";
 let spawned: { command: string; args: readonly string[]; child: MockChild }[] = [];
 /** What `adb devices -l` reports */
 let connectedDevices = [SERIAL];
+/** What `dumpsys display` reports */
+let displayOutput = "fps=60";
+const DUMPSYS_DISPLAY = 'shell dumpsys display | grep -E "mRefreshRate|DisplayDeviceInfo"';
 
 spyOn(childProcess, "spawn").mockImplementation(((command: string, args: readonly string[]) => {
   const child = mockChild();
@@ -59,8 +63,8 @@ const execFileSync = spyOn(childProcess, "execFileSync").mockImplementation(((
     case `shell ${PROFILER_PATH} printRAMPageSize`:
     case `shell ${PROFILER_PATH}_SELF_REPORT printRAMPageSize`:
       return "4096";
-    case 'shell dumpsys display | grep -E "mRefreshRate|DisplayDeviceInfo"':
-      return "fps=60";
+    case DUMPSYS_DISPLAY:
+      return displayOutput;
     default:
       return "";
   }
@@ -78,9 +82,35 @@ const profilerProcess = () => spawned.find(({ args }) => args.includes("pollPerf
 /** A session spawns its processes once its (async) preparation is over */
 const launched = (session: { launched: Promise<void> }) => session.launched.catch(() => {});
 
+const PID = "1234";
+/** An idle app: its UI thread (tid = pid) never gets CPU time, nothing is drawn */
+const writeRawMeasure = (child: MockChild, timestamp: number) =>
+  child.stdout.write(
+    `${JSON.stringify({
+      type: "measure",
+      pid: PID,
+      cpu: `${PID} (com.example) S 480 480 0 0 -1 1077952576 6 0 0 0 0 0 40 0 20 0 53 0 233304293 1726836736 45377 18446744073709551615 1 1 0 0 0 0 4612 1 1073775864 0 0 0 -1 5 0 0 0 0 0 0 0 0 0 0 0 0 0`,
+      ram: "1000 200 0 0 0 0 0",
+      atrace: "",
+      timestamp,
+      timings: { totalMs: 0, cpuMs: 0, ramMs: 0, atraceMs: 0 },
+    })}\n`
+  );
+
+/** Lets the readline interfaces deliver what was written to the fake streams */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+const collectMeasures = (session: ProfilingSession) => {
+  const measures: Measure[] = [];
+  session.on("measure", (measure) => measures.push(measure));
+
+  return measures;
+};
+
 beforeEach(() => {
   spawned = [];
   connectedDevices = [SERIAL];
+  displayOutput = "fps=60";
   error.mockClear();
   execFileSync.mockClear();
 });
@@ -229,6 +259,80 @@ describe("AndroidProfiler", () => {
       ]);
       session.dispose();
       expect(atraceStopCalls()).toBe(0);
+    });
+  });
+
+  describe("FPS", () => {
+    it("targets the refresh rate of the profiler's own device", async () => {
+      displayOutput = "fps=120";
+      const highRefresh = new AndroidProfiler();
+      expect(await highRefresh.detectDeviceRefreshRate()).toBe(120);
+
+      displayOutput = "fps=60";
+      const lowRefresh = new AndroidProfiler();
+      expect(await lowRefresh.detectDeviceRefreshRate()).toBe(60);
+      // Each profiler detected it once, and keeps its own
+      expect(await highRefresh.detectDeviceRefreshRate()).toBe(120);
+      expect(adbCalls().filter((call) => call.endsWith(DUMPSYS_DISPLAY))).toHaveLength(2);
+
+      // An idle app scores the full refresh rate of its device
+      const session = highRefresh.startSession("com.example");
+      await launched(session);
+      const measures = collectMeasures(session);
+      const { child } = profilerProcess()!;
+      writeRawMeasure(child, 1000);
+      writeRawMeasure(child, 1500);
+      await tick();
+
+      expect(measures.map(({ fps }) => fps)).toEqual([120]);
+      session.dispose();
+    });
+
+    it("stops reporting FPS once the profiler reports that atrace is unavailable", async () => {
+      const session = new AndroidProfiler().startSession("com.example");
+      await launched(session);
+      const measures = collectMeasures(session);
+      const { child } = profilerProcess()!;
+
+      writeRawMeasure(child, 1000);
+      writeRawMeasure(child, 1500);
+      await tick();
+      expect(measures).toHaveLength(1);
+      expect(measures[0].fps).toBe(60);
+
+      // stdout and stderr are read independently: the marker is read before the next measures
+      child.stderr.write(
+        "LANTERN_PROFILER_WARN_ATRACE_UNAVAILABLE: Unable to find Atrace output file\n"
+      );
+      await tick();
+      writeRawMeasure(child, 2000);
+      writeRawMeasure(child, 2500);
+      await tick();
+
+      expect(measures).toHaveLength(3);
+      expect(measures.slice(1).map((measure) => "fps" in measure)).toEqual([false, false]);
+      expect(measures.slice(1).map(({ time }) => time)).toEqual([1000, 1500]);
+      session.dispose();
+    });
+
+    it("stops reporting FPS once atrace failed", async () => {
+      const session = new AndroidProfiler().startSession("com.example");
+      await launched(session);
+      const measures = collectMeasures(session);
+      const { child } = profilerProcess()!;
+
+      writeRawMeasure(child, 1000);
+      writeRawMeasure(child, 1500);
+      await tick();
+      expect(measures[0].fps).toBe(60);
+
+      atraceProcesses()[0].child.emit("close", 1, null);
+      writeRawMeasure(child, 2000);
+      await tick();
+
+      expect(measures).toHaveLength(2);
+      expect("fps" in measures[1]).toBe(false);
+      session.dispose();
     });
   });
 

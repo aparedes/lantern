@@ -7,6 +7,13 @@ export interface Measure {
   cpu: CpuMeasure;
   ram?: number;
   fps?: number;
+  /**
+   * Milliseconds since the profiling session started measuring (both platforms), so the
+   * first measure of a run reads about one polling interval. Averaged measures carry
+   * milliseconds since the first averaged sample instead. Result files written by older
+   * versions may hold epoch milliseconds (iOS) or a constant: never position a sample from
+   * this field directly, go through `getMeasureOffsets()` in `@lantern/reporter`.
+   */
   time: number;
 }
 

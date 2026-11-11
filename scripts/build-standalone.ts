@@ -9,7 +9,11 @@
  * Usage:
  *   bun run build:standalone
  *   bun run build:standalone --sign "Developer ID Application: ..."
+ *   bun run build:standalone --sign "Developer ID Application: ..." --notarize <keychain-profile>
  *   bun run build:standalone --skip-build
+ *
+ * `--notarize` takes a notarytool keychain profile, created once with
+ * `xcrun notarytool store-credentials <profile>`.
  */
 
 import fs from "fs";
@@ -31,6 +35,7 @@ const fail = (message: string): never => {
 const parseArgs = () => {
   const args = process.argv.slice(2);
   let sign: string | undefined;
+  let notarize: string | undefined;
   let outfile: string | undefined;
   let skipBuild = false;
 
@@ -46,6 +51,9 @@ const parseArgs = () => {
       case "--sign":
         sign = nextArg();
         break;
+      case "--notarize":
+        notarize = nextArg();
+        break;
       case "--outfile":
         outfile = nextArg();
         break;
@@ -57,10 +65,17 @@ const parseArgs = () => {
     }
   }
 
+  const signIdentity = sign ?? process.env.LANTERN_CODESIGN_IDENTITY ?? "-";
+  const notaryProfile = notarize ?? process.env.LANTERN_NOTARY_PROFILE;
+  if (notaryProfile && signIdentity === "-") {
+    fail("--notarize needs a Developer ID signing identity (--sign or LANTERN_CODESIGN_IDENTITY)");
+  }
+
   return {
     skipBuild,
-    signIdentity: sign ?? process.env.LANTERN_CODESIGN_IDENTITY ?? "-",
-    outfile: outfile ?? path.join(REPO_ROOT, "build/standalone/lantern-macos-arm64"),
+    signIdentity,
+    notaryProfile,
+    outfile: outfile ?? path.join(REPO_ROOT, "build/standalone/lantern"),
   };
 };
 
@@ -256,46 +271,71 @@ run(
 
 // --- Step 5: code signing ---------------------------------------------------
 
-// bun 1.4.0 emits an invalid ad-hoc signature, which makes macOS SIGKILL the binary on launch.
+// bun 1.4.0 emits an invalid ad-hoc signature, which makes macOS SIGKILL the binary on launch,
+// so the binary is always re-signed. A real identity additionally gets what notarization
+// requires: the hardened runtime, a secure timestamp, and the JIT entitlements JavaScriptCore
+// needs to run under the hardened runtime.
+const isAdHoc = options.signIdentity === "-";
 run(
-  ["codesign", "--sign", options.signIdentity, "--force", options.outfile],
+  [
+    "codesign",
+    "--sign",
+    options.signIdentity,
+    "--force",
+    ...(isAdHoc
+      ? []
+      : [
+          "--options",
+          "runtime",
+          "--timestamp",
+          "--entitlements",
+          path.join(import.meta.dir, "entitlements.plist"),
+        ]),
+    options.outfile,
+  ],
   "codesign failed to sign the binary"
 );
 run(
-  ["codesign", "--verify", "--verbose", options.outfile],
+  ["codesign", "--verify", "--strict", "--verbose=2", options.outfile],
   "codesign verification of the binary failed"
 );
 
-// --- Step 6: stable `lantern` symlink ---------------------------------------
+// --- Step 5b: notarization --------------------------------------------------
 
-// The real file keeps its platform suffix so it can be attached to a release (and so a future
-// second target does not collide with it); the symlink next to it is the short path to run
-// locally, and stays valid across rebuilds.
-const LINK_NAME = "lantern";
-const linkPath = path.join(path.dirname(options.outfile), LINK_NAME);
-const linkTarget = path.basename(options.outfile);
-
-let link: string | undefined;
-if (linkTarget !== LINK_NAME) {
-  // `fs.existsSync` follows the link, so a symlink left over from a removed build reads as
-  // missing — `lstatSync` is what tells us whether the path is occupied at all.
-  try {
-    fs.lstatSync(linkPath);
-    fs.rmSync(linkPath, { recursive: true, force: true });
-  } catch {
-    // Nothing there yet.
-  }
-  // Relative, so moving the folder keeps the pair intact.
-  fs.symlinkSync(linkTarget, linkPath);
-  link = linkPath;
+// notarytool only accepts zip/pkg/dmg uploads, and a bare Mach-O cannot be stapled: Gatekeeper
+// looks the ticket up online on first launch. The zip is therefore both the upload and the
+// artifact to distribute.
+let notarizedZip: string | undefined;
+if (options.notaryProfile) {
+  notarizedZip = `${options.outfile}.zip`;
+  fs.rmSync(notarizedZip, { force: true });
+  run(
+    // No --keepParent: for a single file it would wrap the binary in its parent folder.
+    // --norsrc keeps local xattrs (e.g. com.apple.provenance) out as a stray `._` entry; the
+    // signature is embedded in the Mach-O, so nothing needed is lost.
+    ["ditto", "-c", "-k", "--norsrc", options.outfile, notarizedZip],
+    "failed to zip the binary for notarization"
+  );
+  run(
+    [
+      "xcrun",
+      "notarytool",
+      "submit",
+      notarizedZip,
+      "--keychain-profile",
+      options.notaryProfile,
+      "--wait",
+    ],
+    "notarization failed (inspect with `xcrun notarytool log <submission-id> --keychain-profile <profile>`)"
+  );
 }
 
-// --- Step 7: report ---------------------------------------------------------
+// --- Step 6: report ---------------------------------------------------------
 
 const sizeMb = fs.statSync(options.outfile).size / 1024 / 1024;
 const fileOutput = Bun.spawnSync(["file", options.outfile]).stdout.toString().trim();
 
 console.log(`\n✅ Built ${path.relative(REPO_ROOT, options.outfile)}`);
-if (link) console.log(`   link: ${path.relative(REPO_ROOT, link)} -> ${linkTarget}`);
+if (notarizedZip) console.log(`   notarized: ${path.relative(REPO_ROOT, notarizedZip)}`);
 console.log(`   size: ${sizeMb.toFixed(1)} MB`);
 console.log(`   file: ${fileOutput}`);

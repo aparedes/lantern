@@ -174,7 +174,7 @@ Run `bun run test:unit:dom --update-snapshots` after modifications.
 ## Building the standalone macOS binary
 
 `bun run build:standalone` builds a self-contained `lantern` executable for arm64 (Apple
-Silicon) into `build/standalone/lantern-macos-arm64`. The binary is ad-hoc signed, which is
+Silicon) into `build/standalone/lantern`. The binary is ad-hoc signed, which is
 fine for local use but will not pass Gatekeeper on another machine.
 
 ```
@@ -187,6 +187,24 @@ To produce a distributable, properly signed binary, pass your signing identity (
 ```
 bun run build:standalone --sign "Developer ID Application: Your Name (TEAMID)"
 ```
+
+With a real identity the binary is signed with the hardened runtime, a secure timestamp and the
+JIT entitlements in `scripts/entitlements.plist` (JavaScriptCore needs them under the hardened
+runtime). Only a **Developer ID Application** certificate passes Gatekeeper on other machines;
+an "Apple Development" one works for local testing only.
+
+To also notarize, store notarytool credentials once (an app-specific password from
+appleid.apple.com, or an App Store Connect API key), then pass the profile name
+(`LANTERN_NOTARY_PROFILE` works as a fallback):
+
+```
+xcrun notarytool store-credentials lantern-notary --apple-id <apple-id> --team-id <TEAMID>
+bun run build:standalone --sign "Developer ID Application: Your Name (TEAMID)" --notarize lantern-notary
+```
+
+This uploads `build/standalone/lantern.zip` and waits for Apple's verdict. A bare
+binary cannot be stapled, so distribute that zip: Gatekeeper checks the notarization ticket
+online on first launch.
 
 Only Apple Silicon (arm64) is built: Apple has retired Intel Macs from macOS support and the
 project has no Intel machine to build or test on.

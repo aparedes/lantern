@@ -1,9 +1,9 @@
 import { useMemo } from "react";
-import { Measure, POLLING_INTERVAL, TestCaseResult } from "@lantern/types";
+import { Measure, TestCaseResult } from "@lantern/types";
 import { CPUReport } from "./src/sections/CPUReport";
 import { ReportSummary } from "./src/sections/ReportSummary/ReportSummary.component";
 import { RAMReport } from "./src/sections/RAMReport";
-import { Report as ReportModel } from "@lantern/reporter";
+import { getMeasuresDuration, Report as ReportModel } from "@lantern/reporter";
 import { FPSReport } from "./src/sections/FPSReport";
 import { FileDownloadIcon } from "./src/components/icons/SvgIcon";
 import { Header, MenuOption } from "./src/components/Header";
@@ -115,7 +115,7 @@ export const ReporterView = ({ measures }: { measures: Measure[] }) => (
             iterations: [
               {
                 measures,
-                time: measures.length * POLLING_INTERVAL,
+                time: getMeasuresDuration(measures),
                 status: "SUCCESS",
               },
             ],

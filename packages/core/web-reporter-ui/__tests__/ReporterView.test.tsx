@@ -12,7 +12,7 @@ describe("<ReporterView />", () => {
     ];
 
     const { baseElement } = render(<IterationsReporterView results={testCaseResults} />);
-    expect(screen.getAllByLabelText("Score")[0].textContent).toEqual("69");
+    expect(screen.getAllByLabelText("Score")[0].textContent).toEqual("70");
 
     fireEvent.click(screen.getByText("Other threads"));
 

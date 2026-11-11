@@ -41,3 +41,25 @@ export const getMeasureDurations = (measures: Measure[]): number[] => {
 
   return [median(gaps), ...gaps];
 };
+
+/** How long the measures cover in total, in ms: the sum of `getMeasureDurations`. */
+export const getMeasuresDuration = (measures: Measure[]): number =>
+  getMeasureDurations(measures).reduce((sum, duration) => sum + duration, 0);
+
+/**
+ * The measures of a time window: `duration` ms (to the end when null) starting `skip` ms after
+ * the first measure. Samples never land exactly on the polling interval, so one within half an
+ * interval of a bound counts as being on it. When the times are unusable this is a cut by
+ * sample count, one polling interval per sample.
+ */
+export const sliceMeasuresByTime = (
+  measures: Measure[],
+  { skip = 0, duration }: { skip?: number; duration: number | null }
+): Measure[] => {
+  const offsets = getMeasureOffsets(measures);
+  const tolerance = POLLING_INTERVAL / 2;
+  const from = skip - tolerance;
+  const to = duration === null ? Infinity : skip + duration + tolerance;
+
+  return measures.filter((_, i) => offsets[i] >= from && offsets[i] <= to);
+};

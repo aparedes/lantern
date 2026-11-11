@@ -1,15 +1,23 @@
+import { Measure } from "@lantern/types";
 import { useEffect, useState } from "react";
 import { SocketData, SocketEvents } from "../socket/socketInterface";
+import { appendMeasuresReducer } from "../socket/socketState";
 import { socket } from "./socket";
 
 export const useMeasures = () => {
   const [state, setState] = useState<SocketData>();
 
   useEffect(() => {
+    // A delta can only follow a full state on the same connection; one arriving first is ignored
+    const addMeasures = (measures: Measure[]) =>
+      setState((current) => (current ? appendMeasuresReducer(current, measures) : current));
+
     socket.on(SocketEvents.UPDATE_STATE, setState);
+    socket.on(SocketEvents.ADD_MEASURES, addMeasures);
 
     return () => {
       socket.off(SocketEvents.UPDATE_STATE, setState);
+      socket.off(SocketEvents.ADD_MEASURES, addMeasures);
     };
   }, []);
 

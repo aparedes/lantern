@@ -1,4 +1,4 @@
-import { AveragedTestCaseResult, TestCaseResult, ThreadNames } from "@lantern/types";
+import { AveragedTestCaseResult, Measure, TestCaseResult, ThreadNames } from "@lantern/types";
 import { RNLogo } from "../components/icons/ReactNativeLogo";
 import { FlutterLogo } from "../components/icons/FlutterLogo";
 
@@ -58,19 +58,29 @@ export const getNumberOfThreads = (results: AveragedTestCaseResult[]) => {
   return Object.keys(lastMeasure.cpu.perName).length;
 };
 
+/** Mapped once per measure object: live updates append measures, they do not replace them. */
+const mappedMeasures = new WeakMap<Measure, Measure>();
+
+const mapMeasureThreadNames = (measure: Measure): Measure => {
+  const cached = mappedMeasures.get(measure);
+  if (cached) return cached;
+
+  const perName: { [name: string]: number } = {};
+  for (const [name, cpuUsage] of Object.entries(measure.cpu.perName)) {
+    perName[THREAD_NAME_MAPPING[name] || name] = cpuUsage;
+  }
+
+  const mapped = { ...measure, cpu: { ...measure.cpu, perName } };
+  mappedMeasures.set(measure, mapped);
+
+  return mapped;
+};
+
 export const mapThreadNames = (results: TestCaseResult[]): TestCaseResult[] =>
   results.map((result) => ({
     ...result,
     iterations: result.iterations.map((iteration) => ({
       ...iteration,
-      measures: iteration.measures.map((measure) => ({
-        ...measure,
-        cpu: {
-          ...measure.cpu,
-          perName: Object.keys(measure.cpu.perName).reduce((acc, key) => {
-            return { ...acc, [THREAD_NAME_MAPPING[key] || key]: measure.cpu.perName[key] };
-          }, {}),
-        },
-      })),
+      measures: iteration.measures.map(mapMeasureThreadNames),
     })),
   }));

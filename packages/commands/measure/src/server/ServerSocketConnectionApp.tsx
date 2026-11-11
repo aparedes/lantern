@@ -1,7 +1,7 @@
 import { PerformanceMeasurer } from "@lantern/e2e";
 import { Logger } from "@lantern/logger";
-import { profiler, getPlatform } from "@lantern/profiler";
-import { Measure } from "@lantern/types";
+import { profiler, getPlatform, getDeviceSpecs } from "@lantern/profiler";
+import { DeviceSpecs, Measure } from "@lantern/types";
 import React, { useCallback, useEffect } from "react";
 import { HostAndPortInfo } from "./components/HostAndPortInfo";
 import { SocketType, SocketEvents } from "../socket/socketInterface";
@@ -31,12 +31,12 @@ export const ServerSocketConnectionApp = ({ socket, url }: { socket: SocketType;
   useEffect(() => {
     const updateMeasures = (measures: Measure[]) =>
       setState((state) => updateMeasuresReducer(state, measures));
-    const addNewResult = (bundleId: string, refreshRate: number) =>
+    const addNewResult = (bundleId: string, specs: DeviceSpecs) =>
       setState((state) =>
         addNewResultReducer(
           state,
           `${bundleId}${state.results.length > 0 ? ` (${state.results.length + 1})` : ""}`,
-          refreshRate
+          specs
         )
       );
 
@@ -61,11 +61,11 @@ export const ServerSocketConnectionApp = ({ socket, url }: { socket: SocketType;
         // Both can take seconds (binary push, iOS tunnel bring-up): awaited, not blocking, so
         // the terminal UI and the socket stay responsive meanwhile
         await profiler.installProfilerOnDevice();
-        const refreshRate = await profiler.detectDeviceRefreshRate();
+        const specs = await getDeviceSpecs();
         // Stopped (or restarted) while we were setting up: this run is no longer wanted
         if (performanceMeasureRef.current !== measurer) return;
 
-        addNewResult(state.bundleId, refreshRate);
+        addNewResult(state.bundleId, specs);
         await measurer.start(() => updateMeasures(measurer.measures || []));
         // Rejects when the profiler never reports a first measure or exits early
         await measurer.waitUntilMeasuring();

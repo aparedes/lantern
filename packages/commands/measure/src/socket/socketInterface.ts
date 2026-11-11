@@ -1,4 +1,4 @@
-import { AppInfo, Platform, TestCaseResult } from "@lantern/types";
+import { AppInfo, Measure, Platform, TestCaseResult } from "@lantern/types";
 import type { TypedSocket } from "./typedSocket";
 
 export interface SocketData {
@@ -11,6 +11,11 @@ export interface SocketData {
 
 export interface ServerToClientEvents {
   updateState: (state: SocketData) => void;
+  /**
+   * Measures appended to the single iteration of the last result since the previous
+   * `updateState` / `addMeasures` on this connection.
+   */
+  addMeasures: (measures: Measure[]) => void;
   sendError(error: unknown): void;
 }
 
@@ -52,6 +57,7 @@ export enum SocketEvents {
   SET_BUNDLE_ID = "setBundleId",
   LIST_APPS = "listApps",
   UPDATE_STATE = "updateState",
+  ADD_MEASURES = "addMeasures",
   SEND_ERROR = "sendError",
   CONNECT = "connect",
   DISCONNECT = "disconnect",

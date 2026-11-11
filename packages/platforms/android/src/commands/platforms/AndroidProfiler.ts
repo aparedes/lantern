@@ -12,7 +12,7 @@ import { selectDevice } from "@lantern/profiler-protocol";
 import { adb } from "../adb";
 import { getAbi } from "../getAbi";
 import { detectCurrentAppBundleId } from "../detectCurrentAppBundleId";
-import { refreshRateManager } from "../detectCurrentDeviceRefreshRate";
+import { detectRefreshRateOrDefault } from "../detectCurrentDeviceRefreshRate";
 import { listAndroidDevices } from "../listDevices";
 import { listInstalledApps } from "../listInstalledApps";
 import { isDeviceProcessRunning } from "../isDeviceProcessRunning";
@@ -48,6 +48,7 @@ export class AndroidProfiler implements Profiler {
   private installation: Promise<void> | undefined;
   private cpuClockTick: number | undefined;
   private RAMPageSize: number | undefined;
+  private refreshRate: number | undefined;
 
   constructor({ serial, selfProfiling = false }: AndroidProfilerOptions = {}) {
     this.requestedDevice = serial;
@@ -179,6 +180,7 @@ export class AndroidProfiler implements Profiler {
           profilerName: CppProfilerName,
           cpuClockTick: this.getCpuClockTick(),
           ramPageSize: this.getRAMPageSize(),
+          refreshRate: await this.detectDeviceRefreshRate(),
           supportFPS: this.supportFPS(),
           withAtrace: !this.selfProfiling,
         };
@@ -214,18 +216,13 @@ export class AndroidProfiler implements Profiler {
     }
   }
 
-  /**
-   * Detected once per process (`refreshRateManager` is what `FrameTimeParser.getFps` reads
-   * synchronously while measures flow).
-   */
+  /** Detected once per profiler, i.e. once per device; a session gets it through its config. */
   public async detectDeviceRefreshRate(): Promise<number> {
     if (this.selfProfiling) return SELF_PROFILING_REFRESH_RATE;
 
-    if (!refreshRateManager.isInitialized()) {
-      refreshRateManager.setRefreshRate(await this.serial());
-    }
+    this.refreshRate ??= detectRefreshRateOrDefault(await this.serial());
 
-    return refreshRateManager.getRefreshRate();
+    return this.refreshRate;
   }
 
   public async listApps(): Promise<AppInfo[]> {

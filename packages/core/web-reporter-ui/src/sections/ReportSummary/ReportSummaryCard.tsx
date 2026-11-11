@@ -7,6 +7,8 @@ import { Difference, isDifferencePositive } from "./Difference";
 import { SummaryStats } from "./SummaryStats";
 import { ThreadStats } from "./ThreadStats";
 
+const PLATFORM_LABELS = { android: "Android", ios: "iOS" } as const;
+
 type Props = {
   report: Report;
   baselineReport?: Report;
@@ -22,6 +24,17 @@ export const ReportSummaryCard: FunctionComponent<Props> = ({ report, baselineRe
 
   const averagedTestCaseResult = report.getAveragedResult();
 
+  const specs = report.getSpecs();
+  const deviceLine = specs
+    ? [
+        specs.platform ? PLATFORM_LABELS[specs.platform] : undefined,
+        specs.deviceName,
+        `${specs.refreshRate} Hz`,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : undefined;
+
   return (
     <div className="flex flex-col items-center py-6 px-10 bg-dark-charcoal border border-gray-800 rounded-lg w-[500px] shrink-0">
       <div className="flex flex-row items-center gap-2">
@@ -29,6 +42,12 @@ export const ReportSummaryCard: FunctionComponent<Props> = ({ report, baselineRe
         <div className="bg-theme-color rounded-full min-w-[12px] w-[12px] min-h-[12px]" />
         <div className="text-neutral-300 text-center line-clamp-1">{report.name}</div>
       </div>
+
+      {deviceLine ? (
+        <div className="text-neutral-400 text-sm mt-1" data-testid="device-specs">
+          {deviceLine}
+        </div>
+      ) : null}
 
       <div className="h-8" />
 
@@ -66,6 +85,28 @@ export const ReportSummaryCard: FunctionComponent<Props> = ({ report, baselineRe
               reportStats?.fps ? <SummaryStats stats={reportStats.fps} unit="FPS" /> : undefined
             }
           />
+          {metrics.fpsMin !== undefined ? (
+            <>
+              <div className="h-2" />
+              <ReportSummaryCardInfoRow
+                title="Lowest FPS"
+                value={`${metrics.fpsMin} FPS`}
+                difference={
+                  <Difference
+                    value={metrics.fpsMin}
+                    baseline={baselineMetrics?.fpsMin}
+                    hasValueImproved={isDifferencePositive}
+                  />
+                }
+                explanation={<Explanations.LowestFPSExplanation />}
+                statistics={
+                  reportStats?.fpsMin ? (
+                    <SummaryStats stats={reportStats.fpsMin} unit="FPS" />
+                  ) : undefined
+                }
+              />
+            </>
+          ) : null}
         </>
       ) : null}
 
@@ -126,6 +167,24 @@ export const ReportSummaryCard: FunctionComponent<Props> = ({ report, baselineRe
               reportStats?.ram ? <SummaryStats stats={reportStats.ram} unit="MB" /> : undefined
             }
           />
+          {metrics.ramPeak !== undefined ? (
+            <>
+              <div className="h-2" />
+              <ReportSummaryCardInfoRow
+                title="Peak RAM usage"
+                value={`${metrics.ramPeak} MB`}
+                difference={
+                  <Difference value={metrics.ramPeak} baseline={baselineMetrics?.ramPeak} />
+                }
+                explanation={<Explanations.PeakRAMUsageExplanation />}
+                statistics={
+                  reportStats?.ramPeak ? (
+                    <SummaryStats stats={reportStats.ramPeak} unit="MB" />
+                  ) : undefined
+                }
+              />
+            </>
+          ) : null}
         </>
       ) : null}
     </div>

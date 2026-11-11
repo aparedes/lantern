@@ -5,6 +5,7 @@
   },
   "references": [
     { "path": "../../core/logger" },
+    { "path": "../../core/reporter" },
     { "path": "../../core/shell" },
     { "path": "../../core/types" },
     { "path": "../../core/web-reporter-ui" }

@@ -20,6 +20,12 @@ import { profiler } from "@lantern/profiler";
 const mockPerformancePolling = new PerformancePollingMock();
 
 spyOn(profiler, "installProfilerOnDevice").mockImplementation(async () => undefined);
+spyOn(profiler, "detectDeviceRefreshRate").mockResolvedValue(60);
+spyOn(profiler, "resolveDevice").mockResolvedValue({
+  id: "serial",
+  name: "Pixel 7",
+  platform: "android",
+});
 spyOn(profiler, "startSession").mockImplementation(mockPerformancePolling.start);
 
 Logger.setLogLevel(LogLevel.SILENT);
@@ -117,6 +123,11 @@ describe("measurePerformance", () => {
         ],
         "name": "TITLE",
         "score": 3,
+        "specs": {
+          "deviceName": "Pixel 7",
+          "platform": "android",
+          "refreshRate": 60,
+        },
         "status": "SUCCESS",
       }
     `);

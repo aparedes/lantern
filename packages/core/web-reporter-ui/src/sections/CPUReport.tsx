@@ -1,25 +1,22 @@
 import React from "react";
-import { AveragedTestCaseResult, Measure, POLLING_INTERVAL } from "@lantern/types";
+import { AveragedTestCaseResult, Measure } from "@lantern/types";
 import { ComparativeThreadTable, ThreadTable } from "../components/ThreadTable";
 import { Collapsible } from "../components/Collapsible";
 import { getColorPalette } from "../theme/colors";
-import { getAverageCpuUsage, roundToDecimal } from "@lantern/reporter";
+import { getAverageCpuUsage, getMeasureOffsets, roundToDecimal } from "@lantern/reporter";
 import { ReportChart } from "../components/Charts/ReportChart";
 import { THREAD_ICON_MAPPING, getAutoSelectedThreads, getNumberOfThreads } from "./threads";
 
-const buildSeriesData = (measures: Measure[], calculate: (measure: Measure) => number) =>
-  measures
-    .map((measure) => calculate(measure) || 0)
-    .map((value, i) => ({
-      x: i * POLLING_INTERVAL,
-      y: roundToDecimal(value, 1),
-    }));
-
-const buildAverageCpuSeriesData = (measures: Measure[]) =>
-  buildSeriesData(measures, (measure) => getAverageCpuUsage([measure]));
-
-const buildCpuPerThreadSeriesData = (measures: Measure[], threadName: string) =>
-  buildSeriesData(measures, (measure) => measure.cpu.perName[threadName]);
+/** `offsets`: `getMeasureOffsets(measures)`, computed once per result for all of its series. */
+const buildSeriesData = (
+  measures: Measure[],
+  offsets: number[],
+  calculate: (measure: Measure) => number
+) =>
+  measures.map((measure, i) => ({
+    x: Math.round(offsets[i]),
+    y: roundToDecimal(calculate(measure) || 0, 1),
+  }));
 
 const totalCpuAnnotationInterval = [{ y: 300, y2: 1000, color: "#E62E2E", label: "Danger Zone" }];
 
@@ -31,18 +28,26 @@ export const CPUReport = ({ results }: { results: AveragedTestCaseResult[] }) =>
     getAutoSelectedThreads(results)
   );
 
+  const offsetsByResult = results.map((result) => getMeasureOffsets(result.average.measures));
+
   const threads = selectedThreads
     .map((threadName) =>
-      results.map((result) => ({
+      results.map((result, i) => ({
         name: `${threadName}${results.length > 1 ? ` (${result.name})` : ""}`,
-        data: buildCpuPerThreadSeriesData(result.average.measures, threadName),
+        data: buildSeriesData(
+          result.average.measures,
+          offsetsByResult[i],
+          (measure) => measure.cpu.perName[threadName]
+        ),
       }))
     )
     .flat();
 
-  const totalCPUUsage = results.map((result) => ({
+  const totalCPUUsage = results.map((result, i) => ({
     name: result.name,
-    data: buildAverageCpuSeriesData(result.average.measures),
+    data: buildSeriesData(result.average.measures, offsetsByResult[i], (measure) =>
+      getAverageCpuUsage([measure])
+    ),
   }));
 
   const TitleIcon = THREAD_ICON_MAPPING[selectedThreads[0]];

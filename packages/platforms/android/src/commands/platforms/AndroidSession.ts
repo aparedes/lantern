@@ -16,7 +16,7 @@ import { adb, adbAsync, adbIgnoringOutput } from "../adb";
 import { canIgnoreAwsTerminationError } from "../shell";
 import { CpuMeasureAggregator } from "../cpu/CpuMeasureAggregator";
 import { FrameTimeParser } from "../atrace/pollFpsUsage";
-import { processOutput } from "../cpu/getCpuStatsByProcess";
+import { ThreadNamer, processOutput } from "../cpu/getCpuStatsByProcess";
 import { processOutput as processRamOutput } from "../ram/pollRamUsage";
 import { ScreenRecorder } from "../ScreenRecorder";
 
@@ -56,6 +56,8 @@ export interface AndroidSessionConfig {
   profilerName: string;
   cpuClockTick: number;
   ramPageSize: number;
+  /** The device's refresh rate, the FPS target. */
+  refreshRate: number;
   supportFPS: boolean;
   /** Trace `view` events for FPS; off when profiling the profiler itself. */
   withAtrace: boolean;
@@ -73,6 +75,8 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
   private restarting = false;
   private recordingStarted = false;
   private stopRequested = false;
+  /** Frame tracing failed for good: FPS is no longer measurable, so measures stop carrying it. */
+  private frameTracingLost = false;
   /** Known once `prepare` resolved (device resolved, profiler installed). */
   private config: AndroidSessionConfig | undefined;
 
@@ -172,30 +176,30 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
     let previousTime: number | null = null;
     let cpuMeasuresAggregator = new CpuMeasureAggregator(this.cfg.cpuClockTick);
     let frameTimeParser = new FrameTimeParser();
+    let threadNamer = new ThreadNamer();
 
     const reset = () => {
       initialTime = null;
       previousTime = null;
       cpuMeasuresAggregator = new CpuMeasureAggregator(this.cfg.cpuClockTick);
       frameTimeParser = new FrameTimeParser();
+      threadNamer = new ThreadNamer();
     };
 
     const onRawMeasure = ({ pid, cpu, ram: ramStr, atrace, timestamp }: AndroidRawMeasureLine) => {
       if (!atrace) {
         Logger.debug("NO ATRACE OUTPUT, if the app is idle, that is normal");
       }
-      const subProcessesStats = processOutput(cpu, pid);
+      const subProcessesStats = processOutput(cpu, pid, threadNamer);
       const ram = processRamOutput(ramStr, this.cfg.ramPageSize);
 
-      let output;
+      let frameTimes: number[] | undefined;
       try {
-        output = frameTimeParser.getFrameTimes(atrace, pid);
+        frameTimes = frameTimeParser.getFrameTimes(atrace, pid);
       } catch (e) {
         console.error(e);
       }
-      if (!output) return;
-
-      const { frameTimes, interval: atraceInterval } = output;
+      if (!frameTimes) return;
 
       if (!initialTime) initialTime = timestamp;
 
@@ -204,16 +208,19 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
         const cpuMeasures = cpuMeasuresAggregator.process(subProcessesStats, interval);
         const fps = FrameTimeParser.getFps(
           frameTimes,
-          atraceInterval,
+          interval,
           Math.max(
             cpuMeasures.perName[ThreadNames.ANDROID.UI] || 0,
             // Hack for Flutter apps - if this thread is heavy app will be laggy
             cpuMeasures.perName[ThreadNames.FLUTTER.UI] || 0
-          )
+          ),
+          this.cfg.refreshRate
         );
-        const measure: Measure = this.cfg.supportFPS
-          ? { cpu: cpuMeasures, fps, ram, time: timestamp - initialTime }
-          : { cpu: cpuMeasures, ram, time: timestamp - initialTime };
+        const time = timestamp - initialTime;
+        const measure: Measure =
+          this.cfg.supportFPS && !this.frameTracingLost
+            ? { cpu: cpuMeasures, fps, ram, time }
+            : { cpu: cpuMeasures, ram, time };
         this.emitMeasure(measure);
       } else {
         // The first sample is the baseline the next ones are diffed against
@@ -286,6 +293,8 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
           // A thread died between the directory listing and the read: expected, not an error
           Logger.debug(log);
         } else {
+          // No `trace_pipe` on this device: the binary keeps sampling CPU and RAM without frame data
+          if (marker.code === "ATRACE_UNAVAILABLE") this.frameTracingLost = true;
           Logger.warn(log);
         }
       });
@@ -325,6 +334,7 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
       if (code !== 0) {
         // e.g. the device got disconnected or tracing is unavailable: respawning right away would
         // loop tightly, and the adb commands below would throw from inside this event handler
+        this.frameTracingLost = true;
         Logger.error(
           `atrace exited with code ${code}, FPS will no longer be measured until the next session`
         );
@@ -336,6 +346,7 @@ export class AndroidProfilingSession extends ProfilingSessionBase {
       try {
         this.startATrace();
       } catch (error) {
+        this.frameTracingLost = true;
         Logger.error(
           `Could not restart atrace, FPS will no longer be measured: ${
             error instanceof Error ? error.message : error

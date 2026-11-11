@@ -57,7 +57,10 @@ RAM and FPS maths happen in `@lantern/android`:
   idle or atrace is unavailable.
 - `timestamp`: epoch milliseconds; `timings`: how long the sample took, per section.
 
-iOS already carries a computed `Measure` (see `@lantern/types`):
+iOS already carries a computed `Measure` (see `@lantern/types`), except for `time`: on the wire
+it is the host's epoch milliseconds, and `@lantern/ios` converts it for `Measure.time` to
+milliseconds counted from one polling interval before the first measure (so the first one reads
+one interval, as on Android):
 
 ```json
 {
@@ -103,7 +106,7 @@ command, earlier ones are context).
 | Platform | Marker                                                                                                                          | Meaning                                                           |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | Android  | `WARN_CANNOT_OPEN_FILE`                                                                                                         | A thread's `stat` vanished mid-sample (expected, logged at debug) |
-| Android  | `WARN_ATRACE_UNAVAILABLE`                                                                                                       | No `trace_pipe`: FPS stays empty, CPU/RAM go on                   |
+| Android  | `WARN_ATRACE_UNAVAILABLE`                                                                                                       | No `trace_pipe`: FPS is omitted, CPU/RAM go on                    |
 | Android  | `ERROR_USAGE`                                                                                                                   | Bad arguments                                                     |
 | Android  | `ERROR_PID_CLOSED`                                                                                                              | `printPerformanceMeasure`: the pid is gone                        |
 | iOS      | `WARN_TUNNEL_FAILED`                                                                                                            | CoreDevice tunnel unavailable, lockdown fallback attempted        |

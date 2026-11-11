@@ -110,9 +110,11 @@ describe("Report", () => {
       expect(report.getAverageMetrics()).toEqual({
         runtime: 0,
         fps: undefined,
+        fpsMin: undefined,
         cpu: 0,
         totalHighCpuTime: 0,
         ram: undefined,
+        ramPeak: undefined,
         averageCpuUsagePerProcess: [],
       });
       expect(report.getStats().runtime).toEqual({
@@ -187,6 +189,56 @@ describe("Report", () => {
 
     expect(report.getStats()).toBe(report.getStats());
     expect(report.score).toBe(report.score);
+  });
+
+  it("exposes the device recorded in the result file", () => {
+    const specs = { refreshRate: 120, platform: "android" as const, deviceName: "Pixel 7" };
+
+    expect(new Report({ ...buildResult([SUCCESSFUL_ITERATION_1]), specs }).getSpecs()).toEqual(
+      specs
+    );
+    expect(new Report(buildResult([SUCCESSFUL_ITERATION_1])).getSpecs()).toBeUndefined();
+  });
+
+  it("averages the lowest FPS and the peak RAM of each iteration", () => {
+    const report = new Report(buildResult([SUCCESSFUL_ITERATION_1, SUCCESSFUL_ITERATION_2]));
+
+    // Lowest FPS: 30 and 60. Peak RAM: 100 and 300
+    expect(report.getAverageMetrics()).toMatchObject({ fpsMin: 45, ramPeak: 200 });
+    expect(report.getStats().fpsMin?.minMaxRange).toEqual([30, 60]);
+    expect(report.getStats().ramPeak?.minMaxRange).toEqual([100, 300]);
+  });
+
+  it("has no lowest FPS nor peak RAM when no sample carries them", () => {
+    const report = new Report(buildResult([iteration([measure({ UI: 10 })], 1000)]));
+
+    expect(report.getAverageMetrics().fpsMin).toBeUndefined();
+    expect(report.getAverageMetrics().ramPeak).toBeUndefined();
+    expect(report.getStats().fpsMin).toBeUndefined();
+    expect(report.getStats().ramPeak).toBeUndefined();
+  });
+
+  it("measures high CPU time with the real spacing of the samples", () => {
+    const spaced = (time: number, perName: { [name: string]: number }): Measure => ({
+      ...measure(perName),
+      time,
+    });
+    const report = new Report(
+      buildResult([
+        iteration(
+          [
+            spaced(0, { UI: 100 }),
+            spaced(510, { UI: 100 }),
+            spaced(1020, { UI: 10 }),
+            spaced(1530, { UI: 100 }),
+          ],
+          1530
+        ),
+      ])
+    );
+
+    expect(report.getStats().highCpu.threads.UI.minMaxRange).toEqual([1530, 1530]);
+    expect(report.getAverageMetrics().totalHighCpuTime).toBe(1.5);
   });
 
   it("uses the score stored on the result when present", () => {

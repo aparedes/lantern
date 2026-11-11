@@ -18,11 +18,22 @@ const AverageFPSExplanation = ({ refreshRate }: { refreshRate: number }) => (
   <>
     {`Frame Per Second. Your app should display ${refreshRate} Frames Per Second to give an impression of fluidity. This number should be close to ${refreshRate}, otherwise it will seem laggy.`}{" "}
     <br />
+    On Android, time during which the app draws nothing counts as on target, so a static screen
+    reads the refresh rate. On iOS, samples taken while nothing is rendered carry no FPS value and
+    are left out of the average.
+    <br />
     See{" "}
     <a href="https://www.youtube.com/watch?v=CaMTIgxCSqU" target="_blank" rel="noreferrer">
       this video
     </a>{" "}
     for more details
+  </>
+);
+
+const LowestFPSExplanation = () => (
+  <>
+    The lowest FPS sample of the run: the worst half second. With several iterations, the average of
+    each iteration&apos;s lowest sample.
   </>
 );
 
@@ -44,6 +55,14 @@ const AverageRAMUsageExplanation = () => (
     It's worth noting that results might be higher than expected: on Android we measure RSS (not
     PSS), so memory shared with other processes is counted in full. On iOS the value is the
     process's physical footprint, as reported by the system monitor.
+  </>
+);
+
+const PeakRAMUsageExplanation = () => (
+  <>
+    The highest RAM sample of the run. An average hides a memory that keeps growing; the peak is
+    what the system sees when it decides whether to kill the app. With several iterations, the
+    average of each iteration&apos;s peak.
   </>
 );
 
@@ -75,7 +94,9 @@ const HighCPUUsageExplanation = ({
 export const Explanations = {
   AverageTestRuntimeExplanation,
   AverageFPSExplanation,
+  LowestFPSExplanation,
   AverageCPUUsageExplanation,
   AverageRAMUsageExplanation,
+  PeakRAMUsageExplanation,
   HighCPUUsageExplanation,
 };

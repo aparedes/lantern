@@ -1,6 +1,7 @@
-import { Measure, POLLING_INTERVAL, AveragedTestCaseResult } from "@lantern/types";
+import { Measure, AveragedTestCaseResult } from "@lantern/types";
 import { getStatsByThread, getValuesStats } from "../utils/getValuesStats";
 import type { IterationSummary } from "./iterationSummary";
+import { getMeasureDurations } from "./timeline";
 
 /** A thread polled above this CPU percentage is considered to be locking its process. */
 export const HIGH_CPU_USAGE_THRESHOLD = 90;
@@ -12,33 +13,42 @@ export const getHighCpuUsage = (
 ) => {
   const highCpuUsageByProcess: { [processName: string]: number } = {};
 
-  for (const measure of measures) {
+  const durations = getMeasureDurations(measures);
+
+  measures.forEach((measure, i) => {
     for (const [processName, cpuUsage] of Object.entries(measure.cpu.perName)) {
       if (cpuUsage > cpuUsageThreshold) {
         highCpuUsageByProcess[processName] =
-          (highCpuUsageByProcess[processName] ?? 0) + POLLING_INTERVAL;
+          (highCpuUsageByProcess[processName] ?? 0) + durations[i];
       }
     }
-  }
+  });
 
   return highCpuUsageByProcess;
 };
 
 /**
- * Fraction of polls (in [0, 1]) during which at least one thread was above the threshold.
- * Unlike summing per-thread high-CPU time, two threads busy in the same poll count once.
+ * Fraction of the measured time (in [0, 1]) during which at least one thread was above the
+ * threshold. Unlike summing per-thread high-CPU time, two threads busy in the same poll count
+ * once. Each poll weighs what it covers, as in `getHighCpuUsage`: a sample that took 3 s to
+ * come counts for 3 s in both.
  */
 export const getThreadLockedRatio = (
   measures: Measure[],
   cpuUsageThreshold: number | undefined = HIGH_CPU_USAGE_THRESHOLD
 ) => {
-  if (measures.length === 0) return 0;
+  const durations = getMeasureDurations(measures);
+  let lockedTime = 0;
+  let totalTime = 0;
 
-  const lockedPollCount = measures.filter((measure) =>
-    Object.values(measure.cpu.perName).some((cpuUsage) => cpuUsage > cpuUsageThreshold)
-  ).length;
+  measures.forEach((measure, i) => {
+    totalTime += durations[i];
+    if (Object.values(measure.cpu.perName).some((cpuUsage) => cpuUsage > cpuUsageThreshold)) {
+      lockedTime += durations[i];
+    }
+  });
 
-  return lockedPollCount / measures.length;
+  return totalTime > 0 ? lockedTime / totalTime : 0;
 };
 
 export const getAverageTotalHighCPUUsage = (highCpuProcesses: { [processName: string]: number }) =>

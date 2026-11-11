@@ -1,5 +1,6 @@
 import { Logger } from "@lantern/logger";
 import { profiler, waitFor } from "@lantern/profiler";
+import { getMeasureOffsets, sliceMeasuresByTime } from "@lantern/reporter";
 import { Trace } from "./Trace";
 import {
   Measure,
@@ -160,7 +161,7 @@ export class PerformanceMeasurer {
 
     if (duration) {
       // Hack to wait for the duration to be reached in case test case has finished before
-      await waitFor(() => this.measures.length * POLLING_INTERVAL > duration, {
+      await waitFor(() => (getMeasureOffsets(this.measures).at(-1) ?? -1) >= duration, {
         checkInterval: POLLING_INTERVAL,
         timeout: duration * 2,
         errorMessage:
@@ -172,7 +173,7 @@ export class PerformanceMeasurer {
     await this.session?.stop();
 
     if (duration) {
-      this.measures = this.measures.slice(0, duration / POLLING_INTERVAL + 1);
+      this.measures = sliceMeasuresByTime(this.measures, { duration });
     }
 
     if (this.measures.length === 0) {

@@ -1,6 +1,6 @@
 import { AndroidProfiler } from "@lantern/android";
 import { IOSProfiler } from "@lantern/ios";
-import { DeviceInfo, Platform, Profiler } from "@lantern/types";
+import { DeviceInfo, DeviceSpecs, Platform, Profiler } from "@lantern/types";
 import { DeviceSelectionError } from "@lantern/profiler-protocol";
 
 /** `lantern` is the self-profiler used to measure the CLI itself; not user-facing. */
@@ -71,6 +71,33 @@ export const profiler: Profiler = {
   listDevices: () => get().listDevices(),
   // Nothing to release when no platform profiler was ever created
   dispose: () => instance?.dispose(),
+};
+
+/**
+ * A name for the device's hardware, safe to write into result files and reports that get
+ * shared. An iOS device's name is whatever its owner called it ("Jane's iPhone"), so the model
+ * identifier stands in; an Android device without a model is only known by its adb serial
+ * (possibly an IP address), which is left out.
+ */
+export const getHardwareName = (device: DeviceInfo): string | undefined => {
+  if (device.platform === "ios") return device.model;
+
+  return device.name !== device.id ? device.name : undefined;
+};
+
+/** What a result file records about the device its measures were taken on. */
+export const getDeviceSpecs = async (): Promise<DeviceSpecs> => {
+  const [refreshRate, device] = await Promise.all([
+    profiler.detectDeviceRefreshRate(),
+    profiler.resolveDevice(),
+  ]);
+
+  return {
+    refreshRate,
+    platform: device.platform,
+    deviceName: getHardwareName(device),
+    deviceModel: device.model,
+  };
 };
 
 export class PlatformResolutionError extends Error {}

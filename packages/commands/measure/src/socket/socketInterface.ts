@@ -1,4 +1,4 @@
-import { AppInfo, Platform, TestCaseResult } from "@lantern/types";
+import { AppInfo, Measure, Platform, TestCaseResult } from "@lantern/types";
 import type { TypedSocket } from "./typedSocket";
 
 export interface SocketData {
@@ -11,6 +11,11 @@ export interface SocketData {
 
 export interface ServerToClientEvents {
   updateState: (state: SocketData) => void;
+  /**
+   * Measures appended to the single iteration of the last result since the previous
+   * `updateState` / `addMeasures` on this connection.
+   */
+  addMeasures: (measures: Measure[]) => void;
   sendError(error: unknown): void;
 }
 
@@ -21,6 +26,11 @@ export interface ClientToServerEvents {
   autodetectBundleId: () => void;
   setBundleId: (bundleId: string) => void;
   listApps: () => void;
+  /**
+   * Asks for a full `updateState`. Sent by the web app once its listeners are registered: the
+   * state the server pushes on connect can land before that, and deltas alone never catch up.
+   */
+  requestState: () => void;
 }
 
 /**
@@ -51,7 +61,9 @@ export enum SocketEvents {
   AUTODETECT_BUNDLE_ID = "autodetectBundleId",
   SET_BUNDLE_ID = "setBundleId",
   LIST_APPS = "listApps",
+  REQUEST_STATE = "requestState",
   UPDATE_STATE = "updateState",
+  ADD_MEASURES = "addMeasures",
   SEND_ERROR = "sendError",
   CONNECT = "connect",
   DISCONNECT = "disconnect",

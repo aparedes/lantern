@@ -1,4 +1,5 @@
 import fs from "fs";
+import { sliceMeasuresByTime } from "@lantern/reporter";
 import { POLLING_INTERVAL, TestCaseResult } from "@lantern/types";
 import path from "path";
 
@@ -20,16 +21,13 @@ export const getMeasuresForTimeInterval = ({
   assertTimeIntervalMultiple(skip);
   if (duration !== null) assertTimeIntervalMultiple(duration);
 
-  const firstMeasureIndex = skip / POLLING_INTERVAL;
-
   return results.map((result) => ({
     ...result,
     iterations: result.iterations.map((iteration) => ({
       ...iteration,
-      measures: iteration.measures.slice(
-        firstMeasureIndex,
-        duration ? firstMeasureIndex + duration / POLLING_INTERVAL + 1 : iteration.measures.length
-      ),
+      // By the time the samples were taken at, not by counting them: a stalled sample covers
+      // more than one polling interval
+      measures: sliceMeasuresByTime(iteration.measures, { skip, duration: duration || null }),
     })),
   }));
 };

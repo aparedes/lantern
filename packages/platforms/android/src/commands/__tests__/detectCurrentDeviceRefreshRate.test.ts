@@ -1,4 +1,7 @@
-import { detectCurrentDeviceRefreshRate } from "../detectCurrentDeviceRefreshRate";
+import {
+  detectCurrentDeviceRefreshRate,
+  detectRefreshRateOrDefault,
+} from "../detectCurrentDeviceRefreshRate";
 import fs from "fs";
 import { describe, it, expect, afterAll, spyOn, mock } from "bun:test";
 import * as adbModule from "../adb";
@@ -29,9 +32,31 @@ describe("detectCurrentDeviceRefreshRate", () => {
     expect(detectCurrentDeviceRefreshRate()).toEqual(120);
   });
 
+  it("rounds a fractional refresh rate to the nearest integer", () => {
+    adbSpy.mockImplementation(() => "DisplayDeviceInfo{..., fps=59.94, ...}");
+
+    expect(detectCurrentDeviceRefreshRate()).toEqual(60);
+  });
+
   it("throws an error in case it couldn't find it", () => {
     adbSpy.mockImplementation(() => "");
     expect(detectCurrentDeviceRefreshRate).toThrow();
+  });
+});
+
+describe("detectRefreshRateOrDefault", () => {
+  it("returns the detected refresh rate", () => {
+    adbSpy.mockImplementation(() => sampleOutput2);
+
+    expect(detectRefreshRateOrDefault()).toEqual(120);
+  });
+
+  it("falls back to 60 Hz when the detection throws", () => {
+    adbSpy.mockImplementation(() => {
+      throw new Error("no device");
+    });
+
+    expect(detectRefreshRateOrDefault()).toEqual(60);
   });
 });
 

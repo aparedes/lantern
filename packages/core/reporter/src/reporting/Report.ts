@@ -1,6 +1,6 @@
 import { TestCaseResult, AveragedTestCaseResult, TestCaseIterationResult } from "@lantern/types";
 import { roundToDecimal } from "../utils/round";
-import { averageTestCaseResult } from "./averageIterations";
+import { average, averageTestCaseResult } from "./averageIterations";
 import { getScore } from "./getScore";
 import {
   getAverageCpuUsage,
@@ -8,18 +8,20 @@ import {
   getCpuStats,
   getThreadsStats,
 } from "./cpu";
-import { getAverageFPSUsage, getFpsStats } from "./fps";
+import { getAverageFPSUsage, getFpsStats, getLowestFpsStats } from "./fps";
 import { getAverageTotalHighCPUUsage, getHighCpuStats } from "./highCpu";
 import { IterationSummary, summarizeIteration } from "./iterationSummary";
-import { getAverageRAMUsage, getRamStats } from "./ram";
+import { getAverageRAMUsage, getRamPeakStats, getRamStats } from "./ram";
 import { getRuntimeStats } from "./runtime";
 
 interface ReportMetrics {
   runtime: number;
   fps?: number;
+  fpsMin?: number;
   cpu: number;
   totalHighCpuTime: number;
   ram?: number;
+  ramPeak?: number;
   averageCpuUsagePerProcess: {
     cpuUsage: number;
     processName: string;
@@ -29,8 +31,10 @@ interface ReportMetrics {
 export interface ReportStats {
   cpu: ReturnType<typeof getCpuStats>;
   fps: ReturnType<typeof getFpsStats>;
+  fpsMin: ReturnType<typeof getLowestFpsStats>;
   highCpu: ReturnType<typeof getHighCpuStats>;
   ram: ReturnType<typeof getRamStats>;
+  ramPeak: ReturnType<typeof getRamPeakStats>;
   runtime: ReturnType<typeof getRuntimeStats>;
   threads: ReturnType<typeof getThreadsStats>;
 }
@@ -63,10 +67,13 @@ export class Report {
       ...result,
       iterations: this.reportedIterations,
     });
-    this.averageMetrics = Report.getAverageMetrics(this.averagedResult);
+    this.averageMetrics = Report.getAverageMetrics(this.averagedResult, this.iterationSummaries);
   }
 
-  private static getAverageMetrics(averagedResult: AveragedTestCaseResult): ReportMetrics {
+  private static getAverageMetrics(
+    averagedResult: AveragedTestCaseResult,
+    iterationSummaries: IterationSummary[]
+  ): ReportMetrics {
     const averageTestRuntime = roundToDecimal(averagedResult.average.time, 0);
     const averageFPS = getAverageFPSUsage(averagedResult.average.measures);
     const averageCPU = roundToDecimal(getAverageCpuUsage(averagedResult.average.measures), 1);
@@ -75,13 +82,17 @@ export class Report {
       1
     );
     const averageRAM = getAverageRAMUsage(averagedResult.average.measures);
+    const lowestFPS = average(iterationSummaries.map((summary) => summary.fpsMin));
+    const peakRAM = average(iterationSummaries.map((summary) => summary.ramPeak));
 
     return {
       runtime: averageTestRuntime,
       fps: averageFPS !== undefined ? roundToDecimal(averageFPS, 1) : undefined,
+      fpsMin: lowestFPS !== undefined ? roundToDecimal(lowestFPS, 1) : undefined,
       cpu: averageCPU,
       totalHighCpuTime: averageTotalHighCPU,
       ram: averageRAM !== undefined ? roundToDecimal(averageRAM, 1) : undefined,
+      ramPeak: peakRAM !== undefined ? roundToDecimal(peakRAM, 1) : undefined,
       averageCpuUsagePerProcess: getAverageCpuUsagePerProcess(averagedResult.average.measures),
     };
   }
@@ -133,12 +144,19 @@ export class Report {
     this.cachedStats ??= {
       cpu: getCpuStats(this.iterationSummaries, this.averageMetrics.cpu),
       fps: getFpsStats(this.iterationSummaries, this.averageMetrics.fps),
+      fpsMin: getLowestFpsStats(this.iterationSummaries, this.averageMetrics.fpsMin),
       highCpu: getHighCpuStats(this.iterationSummaries, this.averagedResult.averageHighCpuUsage),
       ram: getRamStats(this.iterationSummaries, this.averageMetrics.ram),
+      ramPeak: getRamPeakStats(this.iterationSummaries, this.averageMetrics.ramPeak),
       runtime: getRuntimeStats(this.iterationSummaries, this.averageMetrics.runtime),
       threads: getThreadsStats(this.iterationSummaries),
     };
     return this.cachedStats;
+  }
+
+  /** The device the result was measured on, when the result file recorded it. */
+  public getSpecs() {
+    return this.result.specs;
   }
 
   public getRefreshRate() {

@@ -14,6 +14,27 @@ const mockResultIteration = (name: string[]): TestCaseIterationResult => ({
 });
 
 describe("getMeasuresForTimeInterval", () => {
+  it("cuts by the time the samples were taken at when they carry one", () => {
+    const measuresAt = (...times: number[]): Measure[] =>
+      times.map((time) => ({ cpu: { perCore: {}, perName: {} }, time }));
+    // The third sample came 3 s late
+    const measures = measuresAt(500, 1000, 4000, 4500, 5000);
+
+    const [result] = getMeasuresForTimeInterval({
+      duration: 2000,
+      skip: 0,
+      results: [
+        {
+          name: "Result",
+          status: "SUCCESS",
+          iterations: [{ measures, time: 0, status: "SUCCESS" }],
+        },
+      ],
+    });
+
+    expect(result.iterations[0].measures).toEqual(measuresAt(500, 1000));
+  });
+
   it("throws if skip or duration are not multiple or time interval", () => {
     expect(() =>
       getMeasuresForTimeInterval({ duration: 600, results: [], skip: 0 })

@@ -7,6 +7,13 @@ export interface Measure {
   cpu: CpuMeasure;
   ram?: number;
   fps?: number;
+  /**
+   * Milliseconds since the profiling session started measuring (both platforms), so the
+   * first measure of a run reads about one polling interval. Averaged measures carry
+   * milliseconds since the first averaged sample instead. Result files written by older
+   * versions may hold epoch milliseconds (iOS) or a constant: never position a sample from
+   * this field directly, go through `getMeasureOffsets()` in `@lantern/reporter`.
+   */
   time: number;
 }
 
@@ -188,4 +195,12 @@ export interface Profiler {
 
 export interface DeviceSpecs {
   refreshRate: number;
+  platform?: Platform;
+  /**
+   * What the hardware is, e.g. "Pixel 7" or, on iOS, the model identifier ("iPhone16,1").
+   * Never the name the owner gave the device.
+   */
+  deviceName?: string;
+  /** iOS model identifier (e.g. "iPhone16,1"), when known. */
+  deviceModel?: string;
 }

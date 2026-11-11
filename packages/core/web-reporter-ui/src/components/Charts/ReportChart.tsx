@@ -6,6 +6,10 @@ import { getLastX, useSetVideoTimeOnMouseHover } from "./useSetVideoTimeOnMouseH
 import { AnnotationInterval, LineSeriesType } from "./types";
 import { getAnnotations } from "./getAnnotations";
 import { Chart } from "./Chart";
+import { roundToDecimal } from "@lantern/reporter";
+
+/** Points are positioned in milliseconds; the axis and the tooltip read in seconds. */
+const formatSeconds = (value: string | number) => `${roundToDecimal(Number(value) / 1000, 1)} s`;
 
 export const ReportChart = ({
   title,
@@ -44,6 +48,10 @@ export const ReportChart = ({
       xaxis: {
         type: "numeric",
         max: timeLimit || undefined,
+        labels: { formatter: formatSeconds },
+      },
+      tooltip: {
+        x: { formatter: formatSeconds },
       },
       yaxis: {
         min: 0,

@@ -11,7 +11,7 @@ import { exportRawDataToZIP } from "./utils/reportRawDataExport";
 import { IterationSelector, useIterationSelector } from "./src/components/IterationSelector";
 import { VideoSection } from "./src/sections/VideoSection";
 import { VideoEnabledContext } from "./videoCurrentTimeContext";
-import { hasValueForEveryMeasure } from "./src/sections/hideSectionForEmptyValue";
+import { hasValueForSomeMeasure } from "./src/sections/hideSectionForEmptyValue";
 import { mapThreadNames } from "./src/sections/threads";
 
 const Report = ({
@@ -36,7 +36,7 @@ const Report = ({
 
   const hasVideos = !!selectedReports.some((report) => report.hasVideos());
   const hasMeasures = selectedReports[0].hasMeasures();
-  const hasFps = hasValueForEveryMeasure(averagedResults, "fps");
+  const hasFps = hasValueForSomeMeasure(averagedResults, "fps");
 
   return (
     <>

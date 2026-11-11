@@ -83,4 +83,46 @@ describe("<ReporterView />", () => {
     expect(getText(baseElement)).toMatchSnapshot();
     expect(baseElement.innerHTML).toMatchSnapshot();
   });
+
+  describe("device specs", () => {
+    const base: TestCaseResult = require("../../../commands/report/src/example-reports/results1.json");
+
+    it("shows the device line and an FPS band following the refresh rate", () => {
+      const withSpecs: TestCaseResult = {
+        ...base,
+        specs: { refreshRate: 120, platform: "android", deviceName: "Pixel 8" },
+      };
+
+      const { baseElement } = render(<IterationsReporterView results={[withSpecs]} />);
+
+      expect(screen.getByTestId("device-specs").textContent).toEqual("Android · Pixel 8 · 120 Hz");
+      expect(baseElement.innerHTML).toContain("114");
+      expect(baseElement.innerHTML).toContain("Safe Zone");
+      expect(baseElement.innerHTML).not.toContain('"y":57');
+    });
+
+    it("renders no device line when the result recorded no specs", () => {
+      render(<IterationsReporterView results={[base]} />);
+
+      expect(screen.queryByTestId("device-specs")).toBeNull();
+    });
+
+    it("still renders the FPS chart when the first sample has no fps", () => {
+      const withoutFirstFps: TestCaseResult = {
+        ...base,
+        iterations: base.iterations.map((iteration) => ({
+          ...iteration,
+          measures: iteration.measures.map((measure, i) => {
+            if (i !== 0) return measure;
+            const { fps: _fps, ...rest } = measure;
+            return rest;
+          }),
+        })),
+      };
+
+      render(<IterationsReporterView results={[withoutFirstFps]} />);
+
+      expect(screen.getByText("Frame rate (FPS)")).toBeTruthy();
+    });
+  });
 });

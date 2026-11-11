@@ -1,19 +1,22 @@
 import React from "react";
-import { AveragedTestCaseResult, Measure, POLLING_INTERVAL } from "@lantern/types";
+import { AveragedTestCaseResult, Measure } from "@lantern/types";
 import { ComparativeThreadTable, ThreadTable } from "../components/ThreadTable";
 import { Collapsible } from "../components/Collapsible";
 import { getColorPalette } from "../theme/colors";
-import { getAverageCpuUsage, roundToDecimal } from "@lantern/reporter";
+import { getAverageCpuUsage, getMeasureOffsets, roundToDecimal } from "@lantern/reporter";
 import { ReportChart } from "../components/Charts/ReportChart";
 import { THREAD_ICON_MAPPING, getAutoSelectedThreads, getNumberOfThreads } from "./threads";
 
-const buildSeriesData = (measures: Measure[], calculate: (measure: Measure) => number) =>
-  measures
+const buildSeriesData = (measures: Measure[], calculate: (measure: Measure) => number) => {
+  const offsets = getMeasureOffsets(measures);
+
+  return measures
     .map((measure) => calculate(measure) || 0)
     .map((value, i) => ({
-      x: i * POLLING_INTERVAL,
+      x: Math.round(offsets[i]),
       y: roundToDecimal(value, 1),
     }));
+};
 
 const buildAverageCpuSeriesData = (measures: Measure[]) =>
   buildSeriesData(measures, (measure) => getAverageCpuUsage([measure]));

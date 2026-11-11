@@ -58,8 +58,9 @@ RAM and FPS maths happen in `@lantern/android`:
 - `timestamp`: epoch milliseconds; `timings`: how long the sample took, per section.
 
 iOS already carries a computed `Measure` (see `@lantern/types`), except for `time`: on the wire
-it is the host's epoch milliseconds, and `@lantern/ios` converts it to milliseconds since the
-session start (the `started` status) for `Measure.time`:
+it is the host's epoch milliseconds, and `@lantern/ios` converts it for `Measure.time` to
+milliseconds counted from one polling interval before the first measure (so the first one reads
+one interval, as on Android):
 
 ```json
 {

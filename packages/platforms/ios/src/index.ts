@@ -127,8 +127,11 @@ interface MeasureLine {
 /** One `poll` over the profiler's `serve` child, which outlives the session. */
 class IOSProfilingSession extends ProfilingSessionBase {
   private stopRequested = false;
-  /** Host epoch ms at the `started` status: measure times are reported relative to it. */
-  private startedAt: number | undefined;
+  /**
+   * Epoch ms (the binary's clock) one polling interval before the first measure: measure times
+   * are reported relative to it.
+   */
+  private timeOrigin: number | undefined;
 
   constructor(
     bundleId: string,
@@ -168,15 +171,16 @@ class IOSProfilingSession extends ProfilingSessionBase {
   private onLine(line: ProfilerLine<MeasureLine>) {
     switch (line.type) {
       case "measure": {
-        // The binary stamps measures with this host's epoch clock; `Measure.time` is relative
-        // to the session start, as on Android. A measure cannot precede `started`, but if it
-        // ever did it reads as one regular interval.
-        this.startedAt ??= line.time - POLLING_INTERVAL;
+        // The binary stamps measures with the host's epoch clock; `Measure.time` counts from
+        // one polling interval before the first measure, which is where Android's baseline
+        // sample sits. Not from the `started` status: that one fires when the taps are up,
+        // possibly long before the app runs, and is read on another clock (this process's).
+        this.timeOrigin ??= line.time - POLLING_INTERVAL;
         const measure: Measure = {
           cpu: line.cpu,
           ram: line.ram,
           fps: line.fps,
-          time: Math.max(0, line.time - this.startedAt),
+          time: line.time - this.timeOrigin,
         };
         this.emitMeasure(measure);
         break;
@@ -191,7 +195,6 @@ class IOSProfilingSession extends ProfilingSessionBase {
     const message = `iOS profiler: ${line.event}${line.detail ? ` (${line.detail})` : ""}`;
     switch (line.event) {
       case "started":
-        this.startedAt ??= Date.now();
         this.emitStarted();
         Logger.debug(message);
         break;

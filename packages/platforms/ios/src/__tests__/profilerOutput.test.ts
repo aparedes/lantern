@@ -250,8 +250,8 @@ describe("IOSProfiler.startSession", () => {
     session.on("measure", onMeasure);
     session.on("started", onStarted);
 
-    // The `started` status is read 480 ms before the measure's host epoch timestamp
-    setSystemTime(new Date(1700000000000 - 480));
+    // The `started` status is read 20 s before the first measure: the app was opened late
+    setSystemTime(new Date(1700000000000 - 20000));
     child.stdout.write(
       [
         '{"type":"status","event":"started","detail":"polling com.example every 500ms"}',
@@ -265,19 +265,19 @@ describe("IOSProfiler.startSession", () => {
     await flush();
 
     expect(onStarted).toHaveBeenCalledTimes(1);
-    // Relative to the session start, as on Android
+    // One polling interval, as on Android, however long the app took to show up
     expect(onMeasure).toHaveBeenCalledWith({
       cpu: { perName: { Total: 25.5 }, perCore: {} },
       ram: 123.4,
       fps: 59.9,
-      time: 480,
+      time: 500,
     });
     expect(debug).toHaveBeenCalledWith("Unparseable profiler output: garbage");
     expect(warn).toHaveBeenCalledWith("iOS profiler: stalled (no sysmontap sample for 12s)");
     session.dispose();
   });
 
-  it("reads a measure that precedes the started status as one polling interval", async () => {
+  it("times the measures from the first one, on the binary's clock alone", async () => {
     const { session, child } = await startPolling();
     const onMeasure = jest.fn();
     session.on("measure", onMeasure);
@@ -286,12 +286,15 @@ describe("IOSProfiler.startSession", () => {
       [
         '{"type":"measure","time":1700000000000,"cpu":{"perName":{},"perCore":{}},"ram":1,"threadCount":1,"pid":1234}',
         '{"type":"measure","time":1700000000500,"cpu":{"perName":{},"perCore":{}},"ram":1,"threadCount":1,"pid":1234}',
+        // Handled late, after two measures already went by: no effect on their times
+        '{"type":"status","event":"started","detail":"polling com.example every 500ms"}',
+        '{"type":"measure","time":1700000003500,"cpu":{"perName":{},"perCore":{}},"ram":1,"threadCount":1,"pid":1234}',
         "",
       ].join("\n")
     );
     await flush();
 
-    expect(onMeasure.mock.calls.map(([measure]) => measure.time)).toEqual([500, 1000]);
+    expect(onMeasure.mock.calls.map(([measure]) => measure.time)).toEqual([500, 1000, 4000]);
     session.dispose();
   });
 

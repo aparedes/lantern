@@ -8,12 +8,15 @@ export const useMeasures = () => {
   const [state, setState] = useState<SocketData>();
 
   useEffect(() => {
-    // A delta can only follow a full state on the same connection; one arriving first is ignored
+    // A delta can only follow a full state on the same connection; one arriving first is
+    // ignored, and the full state requested below brings this client up to date
     const addMeasures = (measures: Measure[]) =>
       setState((current) => (current ? appendMeasuresReducer(current, measures) : current));
 
     socket.on(SocketEvents.UPDATE_STATE, setState);
     socket.on(SocketEvents.ADD_MEASURES, addMeasures);
+    // The state the server sends on connect may have arrived before these listeners existed
+    socket.emit(SocketEvents.REQUEST_STATE);
 
     return () => {
       socket.off(SocketEvents.UPDATE_STATE, setState);

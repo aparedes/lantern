@@ -1,12 +1,20 @@
 import { describe, it, expect } from "bun:test";
+import { act, renderHook } from "@testing-library/react";
 import { DeviceSpecs, Measure } from "@lantern/types";
 import {
   addNewResultReducer,
   appendMeasuresReducer,
   getAppendedMeasures,
   updateMeasuresReducer,
+  useSocketState,
 } from "../../socket/socketState";
-import { SocketData } from "../../socket/socketInterface";
+import {
+  ClientToServerEvents,
+  ServerToClientEvents,
+  SocketData,
+  SocketEvents,
+} from "../../socket/socketInterface";
+import { TypedSocketBase } from "../../socket/typedSocket";
 
 const emptyState: SocketData = {
   isMeasuring: false,
@@ -260,5 +268,47 @@ describe("getAppendedMeasures", () => {
 
     expect(appended).not.toBeNull();
     expect(appendMeasuresReducer(withResult, appended ?? [])).toEqual(next);
+  });
+});
+
+/** The server's end of a connection: records what is sent, and lets a test play the client. */
+class FakeServerSocket extends TypedSocketBase<ServerToClientEvents, ClientToServerEvents> {
+  readonly emitted: [event: string, ...args: unknown[]][] = [];
+
+  get connected() {
+    return true;
+  }
+
+  emit(event: string, ...args: unknown[]) {
+    this.emitted.push([event, ...args]);
+  }
+
+  disconnect() {}
+
+  receive(event: string, ...args: unknown[]) {
+    this.dispatch(event, args);
+  }
+}
+
+describe("useSocketState", () => {
+  it("sends the whole state again when the client asks for it, even after deltas", () => {
+    const socket = new FakeServerSocket();
+    const { result } = renderHook(() => useSocketState(socket, "android"));
+    const setState = result.current[1];
+    const first = aMeasure(500);
+
+    act(() => setState((state) => addNewResultReducer(state, "com.example", specs)));
+    act(() => setState((state) => updateMeasuresReducer(state, [first])));
+    act(() => setState((state) => updateMeasuresReducer(state, [first, aMeasure(1000)])));
+    // The client has only been sent a delta for the last two changes
+    expect(socket.emitted.slice(-2).map(([event]) => event)).toEqual([
+      SocketEvents.ADD_MEASURES,
+      SocketEvents.ADD_MEASURES,
+    ]);
+
+    act(() => socket.receive(SocketEvents.REQUEST_STATE));
+
+    expect(socket.emitted.at(-1)).toEqual([SocketEvents.UPDATE_STATE, result.current[0]]);
+    expect(result.current[0].results[0].iterations[0].measures).toHaveLength(2);
   });
 });

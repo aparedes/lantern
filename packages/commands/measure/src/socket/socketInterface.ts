@@ -26,6 +26,11 @@ export interface ClientToServerEvents {
   autodetectBundleId: () => void;
   setBundleId: (bundleId: string) => void;
   listApps: () => void;
+  /**
+   * Asks for a full `updateState`. Sent by the web app once its listeners are registered: the
+   * state the server pushes on connect can land before that, and deltas alone never catch up.
+   */
+  requestState: () => void;
 }
 
 /**
@@ -56,6 +61,7 @@ export enum SocketEvents {
   AUTODETECT_BUNDLE_ID = "autodetectBundleId",
   SET_BUNDLE_ID = "setBundleId",
   LIST_APPS = "listApps",
+  REQUEST_STATE = "requestState",
   UPDATE_STATE = "updateState",
   ADD_MEASURES = "addMeasures",
   SEND_ERROR = "sendError",

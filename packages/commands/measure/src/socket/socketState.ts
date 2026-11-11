@@ -45,6 +45,20 @@ export const useSocketState = (socket: SocketType, platform: Platform) => {
     }
   }, [state, socket]);
 
+  // A client that missed the full state (its listeners were not registered yet) asks for it
+  // again: deltas only make sense on top of a state it actually holds.
+  useEffect(() => {
+    const sendFullState = () => {
+      const last = lastEmitted.current;
+      if (last?.socket === socket) socket.emit(SocketEvents.UPDATE_STATE, last.state);
+    };
+    socket.on(SocketEvents.REQUEST_STATE, sendFullState);
+
+    return () => {
+      socket.off(SocketEvents.REQUEST_STATE, sendFullState);
+    };
+  }, [socket]);
+
   return [state, setState] as const;
 };
 

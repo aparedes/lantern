@@ -44,10 +44,12 @@ reference.
 
 - A macOS host — the standalone binary and the iOS profiler are macOS-only.
 - Android: `adb` on your PATH, and a device with USB debugging enabled
-  (API 24+).
-- iOS: a device connected over USB, with Developer Mode enabled and the
-  personalized Developer Disk Image mounted once via Xcode or `devicectl`.
-  See [`packages/platforms/ios/README.md`](./packages/platforms/ios/README.md)
+  (API 24+). An arm64 emulator (the default on Apple Silicon) also works,
+  though its numbers reflect the host Mac rather than a phone.
+- iOS: a physical device connected over USB, with Developer Mode enabled and
+  the personalized Developer Disk Image mounted once via Xcode or `devicectl`.
+  The iOS Simulator is not supported. See
+  [`packages/platforms/ios/README.md`](./packages/platforms/ios/README.md)
   for details.
 
 ## Installation

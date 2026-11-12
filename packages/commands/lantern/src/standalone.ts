@@ -3,13 +3,17 @@ import os from "os";
 import path from "path";
 import { Logger } from "@lantern/logger";
 import { installSignalHandlers } from "@lantern/profiler";
-import { EMBEDDED_ASSETS } from "./embedded.generated";
+import { EMBEDDED_ASSETS, EMBEDDED_BUILD_ID } from "./embedded.generated";
 import { version } from "../package.json";
 import { createProgram } from "./cli";
 
-// Embedded files live on bun's virtual filesystem; materialize them once per version so the
-// existing folder-based lookups (and `adb push`) see real paths.
-const assetsRoot = path.join(os.tmpdir(), `lantern-${version}-assets`);
+// Embedded files live on bun's virtual filesystem; materialize them once per build so the
+// existing folder-based lookups (and `adb push`) see real paths. The folder is keyed by the
+// build id, not just the version: a folder shared between builds kept the previous build's
+// `index.html` (same size, different chunk hashes), which then pointed at chunks that were no
+// longer there — a blank page. Within one build's folder a name always has the same content,
+// so the size check below only has to catch missing or truncated files.
+const assetsRoot = path.join(os.tmpdir(), `lantern-${version}-${EMBEDDED_BUILD_ID}-assets`);
 for (const asset of EMBEDDED_ASSETS) {
   // `asset.name` can be nested (Vite emits the webapp chunks into `assets/`).
   const destination = path.join(assetsRoot, asset.group, asset.name);

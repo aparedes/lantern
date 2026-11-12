@@ -216,7 +216,7 @@ The executable embeds the Android `rust-profiler` binary (arm64-v8a — devices 
 Silicon emulator), the iOS profiler binary
 (`packages/platforms/ios/rust-profiler/bin/lantern-ios-profiler`, rebuilt with `build_macos.sh`) and both web apps
 (the `report` web reporter and the `measure` live webapp). On the first run of a given version,
-they are extracted to `$TMPDIR/lantern-<version>-assets` so that the regular folder-based
+they are extracted to `$TMPDIR/lantern-<version>-<build id>-assets` so that the regular folder-based
 lookups (and `adb push`) see real file paths.
 
 ### iOS profiler binary

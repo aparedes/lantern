@@ -52,7 +52,7 @@
         "@lantern/types": "^0.9.0",
         "commander": "^15.0.0",
         "ink": "^7.1.1",
-        "react": "^19.2.0",
+        "react": "19.2.8",
       },
       "devDependencies": {
         "@emotion/react": "^11.14.0",

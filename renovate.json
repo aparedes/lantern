@@ -7,6 +7,10 @@
       "matchUpdateTypes": ["patch", "minor"],
       "groupName": "devDependencies (non-major)",
       "automerge": true
+    },
+    {
+      "matchPackageNames": ["react", "react-dom"],
+      "groupName": "react"
     }
   ],
   "schedule": ["after 9pm on sunday"],

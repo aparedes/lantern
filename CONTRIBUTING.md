@@ -203,8 +203,20 @@ bun run build:standalone --sign "Developer ID Application: Your Name (TEAMID)" -
 ```
 
 This uploads `build/standalone/lantern.zip` and waits for Apple's verdict. A bare
-binary cannot be stapled, so distribute that zip: Gatekeeper checks the notarization ticket
-online on first launch.
+binary cannot be stapled: Gatekeeper has to fetch its ticket online on first launch, which
+fails offline or behind a filtering network and shows "Apple could not verify 'lantern' is free
+of malware". For releases, also build a stapled installer package with a "Developer ID
+Installer" identity (`LANTERN_INSTALLER_IDENTITY` works as a fallback):
+
+```
+bun run build:standalone --sign "Developer ID Application: Your Name (TEAMID)" \
+  --notarize lantern-notary --pkg-sign "Developer ID Installer: Your Name (TEAMID)"
+```
+
+This builds `build/standalone/lantern.pkg` (installs `/usr/local/bin/lantern`), notarizes it,
+staples the ticket and checks it with `spctl`. Notarizing the pkg also covers the binary inside,
+so `lantern.zip` is produced alongside it for `curl`/scripted installs (which skip quarantine).
+Attach both to the GitHub Release.
 
 Only Apple Silicon (arm64) is built: Apple has retired Intel Macs from macOS support and the
 project has no Intel machine to build or test on.

@@ -73,7 +73,9 @@ executable you can copy anywhere on your PATH.
 
 Signed and notarized builds for Apple Silicon Macs are attached to
 [GitHub Releases](https://github.com/aparedes/lantern/releases): download
-`lantern.zip`, unzip it and move `lantern` onto your PATH.
+`lantern.pkg` and open it to install `lantern` into `/usr/local/bin`. For a scripted
+install, download `lantern.zip` with `curl` (or `gh release download`), unzip it and move
+`lantern` onto your PATH.
 
 ## How it works
 
@@ -103,6 +105,7 @@ rendering carry no FPS.
 | `LANTERN_REPORT_ASSETS_PATH` | Override the bundled `report` web app path                   |
 | `LANTERN_CODESIGN_IDENTITY`  | Default signing identity for `build:standalone --sign`       |
 | `LANTERN_NOTARY_PROFILE`     | Default notarytool profile for `build:standalone --notarize` |
+| `LANTERN_INSTALLER_IDENTITY` | Default installer identity for `build:standalone --pkg-sign` |
 
 ## Contributing
 

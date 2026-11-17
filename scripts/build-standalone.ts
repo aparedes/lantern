@@ -10,10 +10,17 @@
  *   bun run build:standalone
  *   bun run build:standalone --sign "Developer ID Application: ..."
  *   bun run build:standalone --sign "Developer ID Application: ..." --notarize <keychain-profile>
+ *   bun run build:standalone --sign "Developer ID Application: ..." --notarize <keychain-profile> \
+ *     --pkg-sign "Developer ID Installer: ..."
  *   bun run build:standalone --skip-build
  *
  * `--notarize` takes a notarytool keychain profile, created once with
  * `xcrun notarytool store-credentials <profile>`.
+ *
+ * `--pkg-sign` takes a "Developer ID Installer" identity and additionally builds a signed
+ * installer package that puts `lantern` in /usr/local/bin. The package is what gets notarized,
+ * and its ticket is stapled to it, so Gatekeeper accepts it offline — unlike the bare binary,
+ * whose ticket can only be looked up online and which Finder rejects outright.
  */
 
 import fs from "fs";
@@ -36,6 +43,7 @@ const parseArgs = () => {
   const args = process.argv.slice(2);
   let sign: string | undefined;
   let notarize: string | undefined;
+  let pkgSign: string | undefined;
   let outfile: string | undefined;
   let skipBuild = false;
 
@@ -54,6 +62,9 @@ const parseArgs = () => {
       case "--notarize":
         notarize = nextArg();
         break;
+      case "--pkg-sign":
+        pkgSign = nextArg();
+        break;
       case "--outfile":
         outfile = nextArg();
         break;
@@ -70,11 +81,16 @@ const parseArgs = () => {
   if (notaryProfile && signIdentity === "-") {
     fail("--notarize needs a Developer ID signing identity (--sign or LANTERN_CODESIGN_IDENTITY)");
   }
+  const installerIdentity = pkgSign ?? process.env.LANTERN_INSTALLER_IDENTITY;
+  if (installerIdentity && !notaryProfile) {
+    fail("--pkg-sign needs --notarize (or LANTERN_NOTARY_PROFILE): an unnotarized pkg is blocked");
+  }
 
   return {
     skipBuild,
     signIdentity,
     notaryProfile,
+    installerIdentity,
     outfile: outfile ?? path.join(REPO_ROOT, "build/standalone/lantern"),
   };
 };
@@ -179,7 +195,11 @@ const assets: Asset[] = [
     name,
     sourcePath: path.join(profilerBinDir, name),
   })),
-  { group: "ios-profiler", name: IOS_PROFILER_BINARY, sourcePath: iosProfilerSource },
+  {
+    group: "ios-profiler",
+    name: IOS_PROFILER_BINARY,
+    sourcePath: iosProfilerSource,
+  },
   ...collectWebAssets("report", reportDistDir),
   ...collectWebAssets("webapp", webappDistDir),
 ];
@@ -315,10 +335,26 @@ run(
 
 // --- Step 5b: notarization --------------------------------------------------
 
-// notarytool only accepts zip/pkg/dmg uploads, and a bare Mach-O cannot be stapled: Gatekeeper
-// looks the ticket up online on first launch. The zip is therefore both the upload and the
-// artifact to distribute.
+// notarytool only accepts zip/pkg/dmg uploads. A bare Mach-O cannot be stapled, so for the zip
+// Gatekeeper must fetch the ticket online on first launch — which fails offline or behind a
+// filtering network, and Finder rejects a bare executable regardless ("Apple could not verify
+// …"). The pkg carries a stapled ticket and is the recommended download.
+//
+// Notarizing the pkg also issues a ticket for the binary inside it (same CDHash), so when a
+// pkg is built only the pkg is submitted and the zip still benefits from the online ticket.
+const VERSION: string = JSON.parse(
+  fs.readFileSync(path.join(REPO_ROOT, "packages/commands/lantern/package.json"), "utf8")
+).version;
+const PKG_IDENTIFIER = "io.github.aparedes.lantern";
+
+const notarize = (file: string) =>
+  run(
+    ["xcrun", "notarytool", "submit", file, "--keychain-profile", options.notaryProfile!, "--wait"],
+    "notarization failed (inspect with `xcrun notarytool log <submission-id> --keychain-profile <profile>`)"
+  );
+
 let notarizedZip: string | undefined;
+let notarizedPkg: string | undefined;
 if (options.notaryProfile) {
   notarizedZip = `${options.outfile}.zip`;
   fs.rmSync(notarizedZip, { force: true });
@@ -329,18 +365,47 @@ if (options.notaryProfile) {
     ["ditto", "-c", "-k", "--norsrc", options.outfile, notarizedZip],
     "failed to zip the binary for notarization"
   );
-  run(
-    [
-      "xcrun",
-      "notarytool",
-      "submit",
-      notarizedZip,
-      "--keychain-profile",
-      options.notaryProfile,
-      "--wait",
-    ],
-    "notarization failed (inspect with `xcrun notarytool log <submission-id> --keychain-profile <profile>`)"
-  );
+
+  if (options.installerIdentity) {
+    notarizedPkg = `${options.outfile}.pkg`;
+    const pkgRoot = path.join(path.dirname(options.outfile), "pkgroot");
+    const pkgBinDir = path.join(pkgRoot, "usr/local/bin");
+    fs.rmSync(pkgRoot, { recursive: true, force: true });
+    fs.rmSync(notarizedPkg, { force: true });
+    fs.mkdirSync(pkgBinDir, { recursive: true });
+    run(
+      ["ditto", "--norsrc", options.outfile, path.join(pkgBinDir, "lantern")],
+      "failed to stage the binary for the pkg"
+    );
+    run(
+      [
+        "pkgbuild",
+        "--root",
+        pkgRoot,
+        "--install-location",
+        "/",
+        "--identifier",
+        PKG_IDENTIFIER,
+        "--version",
+        VERSION,
+        "--sign",
+        options.installerIdentity,
+        "--timestamp",
+        notarizedPkg,
+      ],
+      "pkgbuild failed"
+    );
+    fs.rmSync(pkgRoot, { recursive: true, force: true });
+    notarize(notarizedPkg);
+    run(["xcrun", "stapler", "staple", notarizedPkg], "stapling the pkg failed");
+    run(["xcrun", "stapler", "validate", notarizedPkg], "stapled ticket validation failed");
+    run(
+      ["spctl", "--assess", "--type", "install", "--verbose=2", notarizedPkg],
+      "Gatekeeper rejected the pkg"
+    );
+  } else {
+    notarize(notarizedZip);
+  }
 }
 
 // --- Step 6: report ---------------------------------------------------------
@@ -349,6 +414,7 @@ const sizeMb = fs.statSync(options.outfile).size / 1024 / 1024;
 const fileOutput = Bun.spawnSync(["file", options.outfile]).stdout.toString().trim();
 
 console.log(`\n✅ Built ${path.relative(REPO_ROOT, options.outfile)}`);
-if (notarizedZip) console.log(`   notarized: ${path.relative(REPO_ROOT, notarizedZip)}`);
+if (notarizedPkg) console.log(`   installer: ${path.relative(REPO_ROOT, notarizedPkg)} (stapled)`);
+if (notarizedZip) console.log(`   zip: ${path.relative(REPO_ROOT, notarizedZip)}`);
 console.log(`   size: ${sizeMb.toFixed(1)} MB`);
 console.log(`   file: ${fileOutput}`);
